@@ -17,3 +17,7 @@ mono_crash.*.json
 
 # Local run logs
 godot-*.log
+
+# Local helper scripts
+tmp_create_feature_issues.ps1
+tmp_github_api.ps1
