@@ -2,7 +2,8 @@
   {
 	"id": "stick",
 	"name": "Stick",
-	"description": "Basic wood gathered by hand and used in many early recipes."
+	"description": "Basic wood gathered by hand and used in many early recipes.",
+	"fuel_units": 1
   },
   {
 	"id": "stone",
@@ -22,7 +23,8 @@
   {
 	"id": "logs",
 	"name": "Maple Logs",
-	"description": "Heavy wood harvested with a Stone Axe and used for structures and fuel."
+	"description": "Heavy wood harvested with a Stone Axe and used for structures and fuel.",
+	"fuel_units": 2
   },
   {
 	"id": "flint",
@@ -47,6 +49,7 @@
   {
 	"id": "coal",
 	"name": "Coal",
-	"description": "Fuel made from burning wood in a Firepit."
+	"description": "Fuel made from burning wood in a Firepit.",
+	"fuel_units": 6
   }
 ]

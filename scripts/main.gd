@@ -30,6 +30,7 @@ var inventory := {}
 var tools := {}
 var crafted_items := {}
 var craftable_upgrade_levels := {}
+var stored_fuel_units := {}
 var action_queue: Array[Dictionary] = []
 var current_action := {}
 var current_action_completion_pending := false
@@ -49,6 +50,9 @@ var queue_list: ItemList
 var clear_queue_button: Button
 var pause_queue_button: Button
 var skill_context_label: Label
+var toast_panel: PanelContainer
+var toast_label: Label
+var toast_time_left := 0.0
 var page_margin: MarginContainer
 var root_box: VBoxContainer
 var content_grid: GridContainer
@@ -210,6 +214,10 @@ func _initialize_state() -> void:
 	for craftable_id in craftable_order:
 		craftable_upgrade_levels[craftable_id] = 0
 
+	stored_fuel_units.clear()
+	for craftable_id in craftable_order:
+		stored_fuel_units[craftable_id] = 0
+
 	skill_states.clear()
 	for skill_id in skill_order:
 		skill_states[skill_id] = {
@@ -228,6 +236,11 @@ func _initialize_state() -> void:
 
 
 func _process(delta: float) -> void:
+	if toast_panel != null and toast_panel.visible:
+		toast_time_left = maxf(0.0, toast_time_left - delta)
+		if toast_time_left <= 0.0:
+			toast_panel.visible = false
+
 	if current_action_completion_pending:
 		current_action_completion_pending = false
 		_complete_current_action()
@@ -284,6 +297,34 @@ func _build_ui() -> void:
 
 	_build_skill_panel(root_box)
 	_build_content(root_box)
+	_build_toast()
+
+
+func _build_toast() -> void:
+	var toast_anchor := CenterContainer.new()
+	toast_anchor.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	toast_anchor.offset_top = -84
+	toast_anchor.offset_bottom = -20
+	toast_anchor.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(toast_anchor)
+
+	toast_panel = PanelContainer.new()
+	toast_panel.visible = false
+	toast_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	toast_panel.custom_minimum_size = Vector2(320, 0)
+	toast_anchor.add_child(toast_panel)
+
+	var toast_margin := MarginContainer.new()
+	toast_margin.add_theme_constant_override("margin_left", 12)
+	toast_margin.add_theme_constant_override("margin_top", 8)
+	toast_margin.add_theme_constant_override("margin_right", 12)
+	toast_margin.add_theme_constant_override("margin_bottom", 8)
+	toast_panel.add_child(toast_margin)
+
+	toast_label = Label.new()
+	toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	toast_margin.add_child(toast_label)
 
 
 func _build_skill_panel(root: VBoxContainer) -> void:
@@ -775,6 +816,28 @@ func _build_processing_panel(parent: VBoxContainer) -> void:
 		var station_status := Label.new()
 		station_box.add_child(station_status)
 
+		var fuel_buttons := {}
+		var fuel_state_label: Label = null
+		if _get_station_fuel_capacity(craftable_id) > 0:
+			var fuel_buttons_row := HBoxContainer.new()
+			fuel_buttons_row.add_theme_constant_override("separation", 6)
+			station_box.add_child(fuel_buttons_row)
+
+			var burn_label := Label.new()
+			burn_label.text = "Burn"
+			fuel_buttons_row.add_child(burn_label)
+
+			fuel_state_label = Label.new()
+			fuel_state_label.visible = false
+			fuel_buttons_row.add_child(fuel_state_label)
+
+			for fuel_item_id in _get_burnable_item_ids():
+				var fuel_button := Button.new()
+				fuel_button.custom_minimum_size = Vector2(72, 0)
+				fuel_button.pressed.connect(_queue_station_fuel.bind(craftable_id, fuel_item_id))
+				fuel_buttons_row.add_child(fuel_button)
+				fuel_buttons[fuel_item_id] = fuel_button
+
 		var recipes_box := VBoxContainer.new()
 		recipes_box.add_theme_constant_override("separation", 4)
 		station_box.add_child(recipes_box)
@@ -821,6 +884,8 @@ func _build_processing_panel(parent: VBoxContainer) -> void:
 		processing_station_cards[craftable_id] = {
 			"status_label": station_status,
 			"toggle_button": toggle_button,
+			"fuel_buttons": fuel_buttons,
+			"fuel_state_label": fuel_state_label,
 			"recipes_box": recipes_box,
 		}
 
@@ -926,6 +991,13 @@ func _queue_recipe(recipe_id: String) -> void:
 	_queue_action_count(_make_process_recipe_action(recipe_id), _get_requested_queue_amount())
 
 
+func _queue_station_fuel(craftable_id: String, item_id: String) -> void:
+	if not _can_queue_station_fuel_action(craftable_id, item_id):
+		return
+
+	_queue_action_count(_make_refuel_station_action(craftable_id, item_id), _get_requested_queue_amount())
+
+
 func _toggle_processing_station(craftable_id: String) -> void:
 	processing_station_expanded[craftable_id] = not bool(processing_station_expanded.get(craftable_id, true))
 	_refresh_recipe_panel()
@@ -1000,9 +1072,12 @@ func _start_next_action() -> void:
 		tools = live_state["tools"]
 		crafted_items = live_state["crafted_items"]
 		craftable_upgrade_levels = live_state["craftable_upgrade_levels"]
+		stored_fuel_units = live_state["stored_fuel_units"]
 		current_action = {
 			"type": _get_action_type(next_action),
 			"id": _get_action_id(next_action),
+			"station_id": String(next_action.get("station_id", "")),
+			"fuel_item_id": String(next_action.get("fuel_item_id", "")),
 			"elapsed": 0.0,
 			"duration": _get_action_duration(next_action),
 		}
@@ -1162,20 +1237,72 @@ func _refresh_recipe_panel() -> void:
 		var station_card: Dictionary = processing_station_cards[craftable_id]
 		var station_status: Label = station_card["status_label"]
 		var toggle_button: Button = station_card["toggle_button"]
+		var fuel_buttons: Dictionary = station_card["fuel_buttons"]
+		var fuel_state_label: Label = station_card["fuel_state_label"]
 		var recipes_box: VBoxContainer = station_card["recipes_box"]
 		var built_count := _get_crafted_item_count(craftable_id)
 		var station_level := _get_processing_station_level(craftable_id)
 		var is_expanded := bool(processing_station_expanded.get(craftable_id, true))
+		var fuel_capacity := _get_station_fuel_capacity(craftable_id)
+		var fuel_stored := _get_station_stored_fuel_units(craftable_id)
 
 		toggle_button.text = "Collapse" if is_expanded else "Expand"
 		recipes_box.visible = is_expanded
 		if built_count <= 0:
 			station_status.text = "Build %s to unlock its recipes." % _get_craftable_name(craftable_id)
 		else:
-			station_status.text = "Lv %d | %.0f%% faster station crafting" % [
-				station_level,
-				(1.0 - _get_craftable_speed_multiplier(craftable_id)) * 100.0,
-			]
+			if fuel_capacity > 0:
+				station_status.text = "Lv %d | Fuel %d/%d | %.0f%% faster station crafting" % [
+					station_level,
+					fuel_stored,
+					fuel_capacity,
+					(1.0 - _get_craftable_speed_multiplier(craftable_id)) * 100.0,
+				]
+			else:
+				station_status.text = "Lv %d | %.0f%% faster station crafting" % [
+					station_level,
+					(1.0 - _get_craftable_speed_multiplier(craftable_id)) * 100.0,
+				]
+
+		var all_fuel_buttons_full := fuel_buttons.size() > 0
+		for fuel_item_id in fuel_buttons.keys():
+			var fuel_button: Button = fuel_buttons[fuel_item_id]
+			var is_refueling_now: bool = (
+				not current_action.is_empty()
+				and _get_action_type(current_action) == "refuel_station"
+				and _get_action_station_id(current_action) == craftable_id
+				and _get_action_fuel_item_id(current_action) == fuel_item_id
+			)
+			var fuel_block_reason := _get_station_fuel_queue_block_reason(craftable_id, fuel_item_id)
+			var base_text := _get_resource_name(fuel_item_id)
+			all_fuel_buttons_full = all_fuel_buttons_full and fuel_block_reason == "Fuel full"
+
+			if is_refueling_now:
+				fuel_button.text = "Loading..."
+			elif fuel_block_reason == "Fuel full":
+				fuel_button.text = "Fuel Full"
+			elif fuel_block_reason == "No fuel space":
+				fuel_button.text = "No Space"
+			elif fuel_block_reason == "Queue full":
+				fuel_button.text = "Queue Full"
+			elif fuel_block_reason.begins_with("Need "):
+				fuel_button.text = fuel_block_reason
+			elif fuel_block_reason != "":
+				fuel_button.text = "Blocked"
+			else:
+				fuel_button.text = base_text
+
+			fuel_button.disabled = is_refueling_now or fuel_block_reason != ""
+			fuel_button.tooltip_text = _get_queue_button_tooltip() if not fuel_button.disabled else ""
+
+		if fuel_state_label != null:
+			var show_fuel_full_label := built_count > 0 and all_fuel_buttons_full
+			fuel_state_label.visible = show_fuel_full_label
+			if show_fuel_full_label:
+				fuel_state_label.text = "Fuel Full"
+			for fuel_item_id in fuel_buttons.keys():
+				var fuel_button: Button = fuel_buttons[fuel_item_id]
+				fuel_button.visible = not show_fuel_full_label
 
 	for recipe_id in recipe_order:
 		_refresh_recipe_card(recipe_id)
@@ -1322,19 +1449,20 @@ func _refresh_recipe_card(recipe_id: String) -> void:
 			_format_cost_markup(_get_recipe_craft_cost(recipe_id)),
 			_format_cost(_get_recipe_outputs(recipe_id)),
 		]
+		var fuel_cost_units := _get_recipe_fuel_cost_units(recipe_id)
+		if fuel_cost_units > 0:
+			summary_text += " | Fuel: %d" % fuel_cost_units
 		if is_processing_now:
 			summary_text += " | %s left" % _format_seconds(_get_current_action_time_left())
 
 	stats_label.text = summary_text
 
-	if is_processing_now:
-		button.text = "Processing..."
-	elif block_reason != "":
+	if block_reason != "" and not is_processing_now:
 		button.text = block_reason if block_reason.length() <= 18 else "Blocked"
 	else:
-		button.text = "Queue"
+		button.text = "Queue +1" if is_processing_now else "Queue"
 
-	button.disabled = is_processing_now or block_reason != ""
+	button.disabled = (block_reason != "" and not is_processing_now)
 	if not button.disabled:
 		button.tooltip_text = _get_queue_button_tooltip()
 	else:
@@ -1379,6 +1507,10 @@ func _can_queue_recipe_action(recipe_id: String) -> bool:
 	return _get_recipe_queue_block_reason(recipe_id) == ""
 
 
+func _can_queue_station_fuel_action(craftable_id: String, item_id: String) -> bool:
+	return _get_station_fuel_queue_block_reason(craftable_id, item_id) == ""
+
+
 func _get_gather_queue_block_reason(resource_id: String) -> String:
 	if action_queue.size() >= _get_queue_capacity():
 		return "Queue full"
@@ -1417,6 +1549,14 @@ func _get_recipe_queue_block_reason(recipe_id: String) -> String:
 
 	var pipeline_state := _build_pipeline_end_state()
 	return _get_action_block_reason_in_state(_make_process_recipe_action(recipe_id), pipeline_state)
+
+
+func _get_station_fuel_queue_block_reason(craftable_id: String, item_id: String) -> String:
+	if action_queue.size() >= _get_queue_capacity():
+		return "Queue full"
+
+	var pipeline_state := _build_pipeline_end_state()
+	return _get_action_block_reason_in_state(_make_refuel_station_action(craftable_id, item_id), pipeline_state)
 
 
 func _refresh_runtime_status() -> void:
@@ -1483,7 +1623,12 @@ func _refresh_queue_button_hover_previews() -> void:
 		if recipe_button.disabled:
 			continue
 
-		var recipe_base_text := "Queue"
+		var is_current_recipe: bool = (
+			not current_action.is_empty()
+			and _get_action_type(current_action) == "process_recipe"
+			and _get_action_id(current_action) == recipe_id
+		)
+		var recipe_base_text := "Queue +1" if is_current_recipe else "Queue"
 		if not recipe_button.is_hovered():
 			recipe_button.text = recipe_base_text
 			continue
@@ -1494,6 +1639,26 @@ func _refresh_queue_button_hover_previews() -> void:
 			recipe_button.text = "Queue +5"
 		else:
 			recipe_button.text = recipe_base_text
+
+	for craftable_id in processing_station_cards.keys():
+		var station_card: Dictionary = processing_station_cards[craftable_id]
+		var fuel_buttons: Dictionary = station_card["fuel_buttons"]
+		for fuel_item_id in fuel_buttons.keys():
+			var fuel_button: Button = fuel_buttons[fuel_item_id]
+			if fuel_button.disabled:
+				continue
+
+			var fuel_base_text := _get_resource_name(fuel_item_id)
+			if not fuel_button.is_hovered():
+				fuel_button.text = fuel_base_text
+				continue
+
+			if Input.is_key_pressed(KEY_CTRL):
+				fuel_button.text = "+%d" % _get_free_queue_slots()
+			elif Input.is_key_pressed(KEY_SHIFT):
+				fuel_button.text = "+5"
+			else:
+				fuel_button.text = fuel_base_text
 
 
 func _get_queue_button_tooltip() -> String:
@@ -1550,13 +1715,15 @@ func _get_action_duration_for_state(action: Dictionary, state: Dictionary) -> fl
 			return _get_craftable_craft_time(action_id)
 		"process_recipe":
 			return _get_recipe_craft_time_for_state(action_id, state)
+		"refuel_station":
+			return 0.35
 		_:
 			return 0.0
 
 
 func _get_gather_action_duration_for_state(resource_id: String, level_value: int, tooling_level: int) -> float:
 	var gatherable: Dictionary = gatherables[resource_id]
-	var level_multiplier := pow(level_speed_multiplier, maxi(level_value - 1, 0))
+	var level_multiplier := _get_skill_level_speed_multiplier(level_value)
 	var upgrade_multiplier := pow(speed_upgrade_multiplier, tooling_level)
 	var duration := float(gatherable["base_time"]) * level_multiplier * upgrade_multiplier
 	return maxf(min_gather_time, duration)
@@ -1565,8 +1732,14 @@ func _get_gather_action_duration_for_state(resource_id: String, level_value: int
 func _get_recipe_craft_time_for_state(recipe_id: String, state: Dictionary) -> float:
 	var recipe: Dictionary = recipes[recipe_id]
 	var station_id := _get_recipe_station_id(recipe_id)
+	var skill_id := _get_recipe_skill_id(recipe_id)
+	var skill_state: Dictionary = state["skills"].get(skill_id, {"level": 1})
+	var skill_level := int(skill_state.get("level", 1))
 	var upgrade_level := int(state["craftable_upgrade_levels"].get(station_id, 0))
-	var duration := float(recipe.get("craft_time", 0.0)) * pow(_get_craftable_station_speed_multiplier(station_id), upgrade_level)
+	var base_duration := float(recipe.get("craft_time", 0.0))
+	if bool(recipe.get("use_source_fuel_value", false)):
+		base_duration *= float(_get_recipe_source_fuel_units(recipe_id))
+	var duration := base_duration * _get_skill_level_speed_multiplier(skill_level) * pow(_get_craftable_station_speed_multiplier(station_id), upgrade_level)
 	return maxf(min_gather_time, duration)
 
 
@@ -1738,6 +1911,14 @@ func _get_item_description(item_id: String) -> String:
 	return String(item.get("description", ""))
 
 
+func _get_item_fuel_units(item_id: String) -> int:
+	if not items.has(item_id):
+		return 0
+
+	var item: Dictionary = items[item_id]
+	return int(item.get("fuel_units", 0))
+
+
 func _get_resource_skill_id(resource_id: String) -> String:
 	if not gatherables.has(resource_id):
 		return "crafting"
@@ -1774,6 +1955,16 @@ func _get_processing_summary_item_ids() -> Array:
 		summary_item_ids.append(item_id)
 
 	return summary_item_ids
+
+
+func _get_burnable_item_ids() -> Array:
+	var burnable_item_ids: Array = []
+	for item_id in item_order:
+		if _get_item_fuel_units(item_id) <= 0:
+			continue
+		burnable_item_ids.append(item_id)
+
+	return burnable_item_ids
 
 
 func _get_required_tool_id(resource_id: String) -> String:
@@ -1815,6 +2006,26 @@ func _get_skill_exp(skill_id: String) -> int:
 
 func _get_skill_exp_to_next(skill_id: String) -> int:
 	return int(skill_states[skill_id]["exp_to_next"])
+
+
+func _get_skill_level_speed_multiplier(level_value: int) -> float:
+	return pow(level_speed_multiplier, maxi(level_value - 1, 0))
+
+
+func _is_resource_unlocked_in_state(resource_id: String, state: Dictionary) -> bool:
+	var skill_id := _get_resource_skill_id(resource_id)
+	var skill_state: Dictionary = {"level": 1}
+	if state["skills"].has(skill_id):
+		skill_state = state["skills"][skill_id]
+	return int(skill_state.get("level", 1)) >= _get_unlock_level(resource_id)
+
+
+func _get_resource_unlock_requirement_text(resource_id: String) -> String:
+	return "%s unlocks at %s Lv %d." % [
+		_get_resource_name(_get_gather_output_item_id(resource_id)),
+		_get_skill_name(_get_resource_skill_id(resource_id)),
+		_get_unlock_level(resource_id),
+	]
 
 
 func _skill_has_gatherables(skill_id: String) -> bool:
@@ -1938,6 +2149,15 @@ func _get_craftable_station_speed_multiplier(craftable_id: String) -> float:
 	return float(craftable.get("station_speed_multiplier", 0.85))
 
 
+func _get_station_fuel_capacity(craftable_id: String) -> int:
+	var craftable: Dictionary = craftables[craftable_id]
+	return int(craftable.get("fuel_capacity", 0))
+
+
+func _get_station_stored_fuel_units(craftable_id: String) -> int:
+	return int(stored_fuel_units.get(craftable_id, 0))
+
+
 func _get_craftable_speed_multiplier(craftable_id: String) -> float:
 	return pow(_get_craftable_station_speed_multiplier(craftable_id), _get_craftable_upgrade_level(craftable_id))
 
@@ -1959,7 +2179,19 @@ func _get_recipe_craft_cost(recipe_id: String) -> Dictionary:
 
 func _get_recipe_outputs(recipe_id: String) -> Dictionary:
 	var recipe: Dictionary = recipes[recipe_id]
-	return _build_cost(Dictionary(recipe.get("outputs", {})))
+	var outputs := _build_cost(Dictionary(recipe.get("outputs", {})))
+	if not bool(recipe.get("use_source_fuel_value", false)):
+		return outputs
+
+	var multiplier := _get_recipe_source_fuel_units(recipe_id)
+	if multiplier <= 1:
+		return outputs
+
+	var scaled_outputs := {}
+	for item_id in outputs.keys():
+		scaled_outputs[item_id] = int(outputs[item_id]) * multiplier
+
+	return _build_cost(scaled_outputs)
 
 
 func _get_recipe_craft_time(recipe_id: String) -> float:
@@ -1974,6 +2206,22 @@ func _get_recipe_craft_xp(recipe_id: String) -> int:
 func _get_recipe_skill_id(recipe_id: String) -> String:
 	var recipe: Dictionary = recipes[recipe_id]
 	return String(recipe.get("skill", "crafting"))
+
+
+func _get_recipe_fuel_cost_units(recipe_id: String) -> int:
+	var recipe: Dictionary = recipes[recipe_id]
+	return int(recipe.get("fuel_cost_units", 0))
+
+
+func _get_recipe_source_fuel_units(recipe_id: String) -> int:
+	var recipe_cost := _get_recipe_craft_cost(recipe_id)
+	if recipe_cost.size() != 1:
+		return 1
+
+	for item_id in recipe_cost.keys():
+		return maxi(1, _get_item_fuel_units(String(item_id)))
+
+	return 1
 
 
 func _build_pipeline_end_state() -> Dictionary:
@@ -1994,6 +2242,7 @@ func _create_simulation_state() -> Dictionary:
 		"tools": tools.duplicate(true),
 		"crafted_items": crafted_items.duplicate(true),
 		"craftable_upgrade_levels": craftable_upgrade_levels.duplicate(true),
+		"stored_fuel_units": stored_fuel_units.duplicate(true),
 		"skills": skill_states.duplicate(true),
 	}
 
@@ -2019,6 +2268,9 @@ func _get_action_block_reason_in_state(action: Dictionary, state: Dictionary) ->
 	var action_id := _get_action_id(action)
 	match action_type:
 		"gather":
+			if not _is_resource_unlocked_in_state(action_id, state):
+				return _get_resource_unlock_requirement_text(action_id)
+
 			var output_item_id := _get_gather_output_item_id(action_id)
 			if int(state["inventory"].get(output_item_id, 0)) >= _get_capacity(action_id):
 				return "Full at end of queue"
@@ -2054,6 +2306,22 @@ func _get_action_block_reason_in_state(action: Dictionary, state: Dictionary) ->
 				return "Need %s" % _get_craftable_name(station_id)
 			if not _can_afford_inventory(state["inventory"], _get_recipe_craft_cost(action_id)):
 				return "Need %s" % _format_cost(_get_recipe_craft_cost(action_id))
+			if int(state["stored_fuel_units"].get(station_id, 0)) < _get_recipe_fuel_cost_units(action_id):
+				return "Need fuel"
+			return ""
+		"refuel_station":
+			var station_id := _get_action_station_id(action)
+			var fuel_item_id := _get_action_fuel_item_id(action)
+			if int(state["crafted_items"].get(station_id, 0)) <= 0:
+				return "Need %s" % _get_craftable_name(station_id)
+			if _get_item_fuel_units(fuel_item_id) <= 0:
+				return "Invalid fuel"
+			if int(state["inventory"].get(fuel_item_id, 0)) <= 0:
+				return "Need %s" % _get_resource_name(fuel_item_id)
+			if int(state["stored_fuel_units"].get(station_id, 0)) >= _get_station_fuel_capacity(station_id):
+				return "Fuel full"
+			if int(state["stored_fuel_units"].get(station_id, 0)) + _get_item_fuel_units(fuel_item_id) > _get_station_fuel_capacity(station_id):
+				return "No fuel space"
 			return ""
 		_:
 			return "Unknown action"
@@ -2086,6 +2354,15 @@ func _apply_action_start_to_state(state: Dictionary, action: Dictionary) -> void
 			var recipe_cost := _get_recipe_craft_cost(action_id)
 			for resource_id in recipe_cost.keys():
 				state["inventory"][resource_id] -= int(recipe_cost[resource_id])
+			state["stored_fuel_units"][ _get_recipe_station_id(action_id) ] = maxi(
+				0,
+				int(state["stored_fuel_units"].get(_get_recipe_station_id(action_id), 0)) - _get_recipe_fuel_cost_units(action_id)
+			)
+		"refuel_station":
+			var station_id := _get_action_station_id(action)
+			var fuel_item_id := _get_action_fuel_item_id(action)
+			state["inventory"][fuel_item_id] -= 1
+			state["stored_fuel_units"][station_id] = int(state["stored_fuel_units"].get(station_id, 0)) + _get_item_fuel_units(fuel_item_id)
 
 
 func _apply_action_completion_to_state(state: Dictionary, action: Dictionary) -> void:
@@ -2162,6 +2439,8 @@ func _get_action_queue_label(action: Dictionary) -> String:
 			return "Upgrade %s" % _get_craftable_name(_get_action_id(action))
 		"process_recipe":
 			return "%s: %s" % [_get_craftable_name(_get_recipe_station_id(_get_action_id(action))), _get_recipe_name(_get_action_id(action))]
+		"refuel_station":
+			return "Burn %s in %s" % [_get_resource_name(_get_action_fuel_item_id(action)), _get_craftable_name(_get_action_station_id(action))]
 		_:
 			return "Unknown"
 
@@ -2178,6 +2457,8 @@ func _get_action_progress_label(action: Dictionary) -> String:
 			return "Upgrading %s" % _get_craftable_name(_get_action_id(action))
 		"process_recipe":
 			return "Processing %s" % _get_recipe_name(_get_action_id(action))
+		"refuel_station":
+			return "Loading %s" % _get_resource_name(_get_action_fuel_item_id(action))
 		_:
 			return "Working"
 
@@ -2217,6 +2498,15 @@ func _make_process_recipe_action(recipe_id: String) -> Dictionary:
 	}
 
 
+func _make_refuel_station_action(craftable_id: String, item_id: String) -> Dictionary:
+	return {
+		"type": "refuel_station",
+		"id": craftable_id,
+		"station_id": craftable_id,
+		"fuel_item_id": item_id,
+	}
+
+
 func _action_from_current_action() -> Dictionary:
 	if current_action.is_empty():
 		return {}
@@ -2224,6 +2514,8 @@ func _action_from_current_action() -> Dictionary:
 	return {
 		"type": _get_action_type(current_action),
 		"id": _get_action_id(current_action),
+		"station_id": _get_action_station_id(current_action),
+		"fuel_item_id": _get_action_fuel_item_id(current_action),
 	}
 
 
@@ -2233,6 +2525,14 @@ func _get_action_type(action: Dictionary) -> String:
 
 func _get_action_id(action: Dictionary) -> String:
 	return String(action.get("id", ""))
+
+
+func _get_action_station_id(action: Dictionary) -> String:
+	return String(action.get("station_id", _get_action_id(action)))
+
+
+func _get_action_fuel_item_id(action: Dictionary) -> String:
+	return String(action.get("fuel_item_id", ""))
 
 
 func _is_current_gather_action(resource_id: String) -> bool:
@@ -2332,12 +2632,25 @@ func _on_cost_meta_clicked(meta: Variant) -> void:
 	if not meta_text.begins_with("resource:"):
 		return
 
-	var resource_id := meta_text.trim_prefix("resource:")
+	var meta_parts := meta_text.split(":")
+	if meta_parts.size() < 2:
+		return
+
+	var resource_id := String(meta_parts[1])
+	var required_amount := 0
+	if meta_parts.size() >= 3:
+		required_amount = int(meta_parts[2])
+
+	if Input.is_key_pressed(KEY_CTRL):
+		_queue_linked_resource_shortfall(resource_id, required_amount)
+		return
+
 	_focus_resource_gather_tab(resource_id)
 
 
 func _focus_resource_gather_tab(resource_id: String) -> void:
-	if not gatherables.has(resource_id):
+	var gather_resource_id := _get_gather_resource_for_item(resource_id)
+	if gather_resource_id == "":
 		return
 
 	if main_tabs != null:
@@ -2347,7 +2660,7 @@ func _focus_resource_gather_tab(resource_id: String) -> void:
 				break
 
 	if gatherable_skill_tabs != null:
-		var skill_id := _get_resource_skill_id(resource_id)
+		var skill_id := _get_resource_skill_id(gather_resource_id)
 		for index in range(gatherable_skill_tabs.get_tab_count()):
 			if String(gatherable_skill_tabs.get_child(index).name) == skill_id:
 				gatherable_skill_tabs.current_tab = index
@@ -2356,6 +2669,65 @@ func _focus_resource_gather_tab(resource_id: String) -> void:
 	_refresh_skill_context_label()
 	for skill_id in skill_order:
 		_refresh_skill_row(skill_id)
+
+
+func _queue_linked_resource_shortfall(item_id: String, required_amount: int) -> void:
+	var gather_resource_id := _get_gather_resource_for_item(item_id)
+	if gather_resource_id == "":
+		_show_toast("Can't auto-queue %s from a cost link." % _get_resource_name(item_id))
+		return
+
+	var pipeline_state := _build_pipeline_end_state()
+	var projected_amount := int(pipeline_state["inventory"].get(item_id, 0))
+	var missing_amount := required_amount - projected_amount
+	if missing_amount <= 0:
+		return
+
+	var gather_action := _make_gather_action(gather_resource_id)
+	var block_reason := _get_action_block_reason_in_state(gather_action, pipeline_state)
+	if block_reason != "":
+		_show_toast(_get_auto_queue_requirement_message(gather_resource_id, block_reason))
+		return
+
+	if _get_free_queue_slots() <= 0:
+		_show_toast("Queue is full.")
+		return
+
+	_queue_action_count(gather_action, missing_amount)
+
+
+func _get_gather_resource_for_item(item_id: String) -> String:
+	if gatherables.has(item_id):
+		return item_id
+
+	for resource_id in gatherable_order:
+		if _get_gather_output_item_id(resource_id) == item_id:
+			return resource_id
+
+	return ""
+
+
+func _get_auto_queue_requirement_message(resource_id: String, block_reason: String) -> String:
+	var item_name := _get_resource_name(_get_gather_output_item_id(resource_id))
+	if block_reason == "Queue full":
+		return "Queue is full."
+	if block_reason == "Full at end of queue":
+		return "%s storage will be full at the end of the queue." % item_name
+	if block_reason == _get_resource_unlock_requirement_text(resource_id):
+		return block_reason
+	if block_reason.begins_with("Need "):
+		return "%s requires %s." % [item_name, block_reason.trim_prefix("Need ")]
+
+	return "Can't auto-queue %s: %s" % [item_name, block_reason]
+
+
+func _show_toast(message: String, duration: float = 2.6) -> void:
+	if toast_panel == null or toast_label == null:
+		return
+
+	toast_label.text = message
+	toast_time_left = maxf(0.8, duration)
+	toast_panel.visible = true
 
 
 func _create_resource_navigation_rich_label(font_size: int) -> RichTextLabel:
@@ -2431,7 +2803,7 @@ func _format_cost_markup(cost: Dictionary) -> String:
 func _format_resource_cost_part(resource_id: String, amount: int) -> String:
 	var part := "%d %s" % [amount, _get_resource_name(resource_id)]
 	if int(inventory.get(resource_id, 0)) < amount:
-		part = "[url=resource:%s][color=#ff7070]%s[/color][/url]" % [resource_id, part]
+		part = "[url=resource:%s:%d][color=#ff7070]%s[/color][/url]" % [resource_id, amount, part]
 
 	return part
 

@@ -7,6 +7,7 @@
 	"max_count": 1,
 	"upgrade_cost_multiplier": 1.3,
 	"station_speed_multiplier": 0.85,
+	"fuel_capacity": 12,
 	"craft_cost": {
 	  "stone": 5,
 	  "logs": 5,
