@@ -5,6 +5,7 @@
 	"craft_time": 12.0,
 	"craft_xp": 8,
 	"craft_cost": {
+	  "stone": 5,
 	  "logs": 5,
 	  "grass": 5
 	},

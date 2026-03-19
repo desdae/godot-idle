@@ -11,6 +11,8 @@ var queue_size_per_upgrade := 3
 var bag_capacity_per_upgrade := 4
 var layout_stack_breakpoint := 1024.0
 
+var skill_order: Array = []
+var skill_definitions := {}
 var gatherable_order: Array = []
 var gatherables := {}
 var tool_order: Array = []
@@ -27,34 +29,25 @@ var action_queue: Array[Dictionary] = []
 var current_action := {}
 var current_action_completion_pending := false
 
-var gathering_level := 1
-var gathering_exp := 0
-var gathering_exp_to_next := 10
-var crafting_level := 1
-var crafting_exp := 0
-var crafting_exp_to_next := 10
+var skill_states := {}
 var upgrade_levels := {}
 
 var resource_cards := {}
 var upgrade_cards := {}
+var skill_rows := {}
 
-var gathering_skill_label: Label
-var gathering_exp_label: Label
-var gathering_exp_bar: ProgressBar
-var crafting_skill_label: Label
-var crafting_exp_label: Label
-var crafting_exp_bar: ProgressBar
-var next_unlock_label: Label
 var current_action_label: Label
 var queue_summary_label: Label
 var queue_time_left_label: Label
 var queue_list: ItemList
 var clear_queue_button: Button
+var skill_context_label: Label
 var page_margin: MarginContainer
 var root_box: VBoxContainer
 var content_grid: GridContainer
 var main_tabs: TabContainer
 var queue_column: VBoxContainer
+var gatherable_skill_tabs: TabContainer
 var tool_cards := {}
 var craftable_cards := {}
 
@@ -89,6 +82,12 @@ func _load_game_data() -> bool:
 	game_title = String(ui_data.get("title", game_title))
 	game_subtitle = String(ui_data.get("subtitle", game_subtitle))
 	layout_stack_breakpoint = float(ui_data.get("layout_stack_breakpoint", layout_stack_breakpoint))
+
+	var skill_data := _load_ordered_data_file("res://data/skills.json")
+	if not skill_data.get("ok", false):
+		return false
+	skill_order = skill_data["order"]
+	skill_definitions = skill_data["entries"]
 
 	var gatherable_data := _load_ordered_data_file("res://data/gatherables.json")
 	if not gatherable_data.get("ok", false):
@@ -182,18 +181,20 @@ func _initialize_state() -> void:
 	for craftable_id in craftable_order:
 		crafted_items[craftable_id] = 0
 
+	skill_states.clear()
+	for skill_id in skill_order:
+		skill_states[skill_id] = {
+			"level": 1,
+			"exp": 0,
+			"exp_to_next": 10,
+		}
+
 	upgrade_levels.clear()
 	for upgrade_id in upgrade_order:
 		upgrade_levels[upgrade_id] = 0
 	action_queue.clear()
 	current_action.clear()
 	current_action_completion_pending = false
-	gathering_level = 1
-	gathering_exp = 0
-	gathering_exp_to_next = 10
-	crafting_level = 1
-	crafting_exp = 0
-	crafting_exp_to_next = 10
 
 
 func _process(delta: float) -> void:
@@ -212,6 +213,7 @@ func _process(delta: float) -> void:
 			current_action_completion_pending = true
 
 	_refresh_runtime_status()
+	_refresh_queue_button_hover_previews()
 
 
 func _build_ui() -> void:
@@ -270,48 +272,59 @@ func _build_skill_panel(root: VBoxContainer) -> void:
 	skill_box.add_theme_constant_override("separation", 4)
 	skill_margin.add_child(skill_box)
 
-	var gather_row := HBoxContainer.new()
-	gather_row.add_theme_constant_override("separation", 12)
-	skill_box.add_child(gather_row)
+	var skill_scroll := ScrollContainer.new()
+	skill_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	skill_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	skill_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	skill_scroll.custom_minimum_size = Vector2(0, 58)
+	skill_box.add_child(skill_scroll)
 
-	gathering_skill_label = Label.new()
-	gathering_skill_label.add_theme_font_size_override("font_size", 18)
-	gather_row.add_child(gathering_skill_label)
+	var skill_strip := HBoxContainer.new()
+	skill_strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	skill_strip.add_theme_constant_override("separation", 8)
+	skill_scroll.add_child(skill_strip)
 
-	gathering_exp_label = Label.new()
-	gathering_exp_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	gather_row.add_child(gathering_exp_label)
+	for skill_id in skill_order:
+		var card_panel := PanelContainer.new()
+		card_panel.custom_minimum_size = Vector2(170, 0)
+		skill_strip.add_child(card_panel)
 
-	next_unlock_label = Label.new()
-	next_unlock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	next_unlock_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	gather_row.add_child(next_unlock_label)
+		var card_margin := MarginContainer.new()
+		card_margin.add_theme_constant_override("margin_left", 8)
+		card_margin.add_theme_constant_override("margin_top", 6)
+		card_margin.add_theme_constant_override("margin_right", 8)
+		card_margin.add_theme_constant_override("margin_bottom", 6)
+		card_panel.add_child(card_margin)
 
-	gathering_exp_bar = ProgressBar.new()
-	gathering_exp_bar.min_value = 0
-	gathering_exp_bar.max_value = 100
-	gathering_exp_bar.show_percentage = false
-	gathering_exp_bar.custom_minimum_size = Vector2(0, 12)
-	skill_box.add_child(gathering_exp_bar)
+		var card_box := VBoxContainer.new()
+		card_box.add_theme_constant_override("separation", 3)
+		card_margin.add_child(card_box)
 
-	var crafting_row := HBoxContainer.new()
-	crafting_row.add_theme_constant_override("separation", 12)
-	skill_box.add_child(crafting_row)
+		var skill_label := Label.new()
+		skill_label.add_theme_font_size_override("font_size", 16)
+		card_box.add_child(skill_label)
 
-	crafting_skill_label = Label.new()
-	crafting_skill_label.add_theme_font_size_override("font_size", 16)
-	crafting_row.add_child(crafting_skill_label)
+		var exp_label := Label.new()
+		exp_label.add_theme_font_size_override("font_size", 12)
+		card_box.add_child(exp_label)
 
-	crafting_exp_label = Label.new()
-	crafting_exp_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	crafting_row.add_child(crafting_exp_label)
+		var exp_bar := ProgressBar.new()
+		exp_bar.min_value = 0
+		exp_bar.max_value = 100
+		exp_bar.show_percentage = false
+		exp_bar.custom_minimum_size = Vector2(0, 6)
+		card_box.add_child(exp_bar)
 
-	crafting_exp_bar = ProgressBar.new()
-	crafting_exp_bar.min_value = 0
-	crafting_exp_bar.max_value = 100
-	crafting_exp_bar.show_percentage = false
-	crafting_exp_bar.custom_minimum_size = Vector2(0, 10)
-	skill_box.add_child(crafting_exp_bar)
+		skill_rows[skill_id] = {
+			"panel": card_panel,
+			"skill_label": skill_label,
+			"exp_label": exp_label,
+			"exp_bar": exp_bar,
+		}
+
+	skill_context_label = Label.new()
+	skill_context_label.add_theme_font_size_override("font_size", 13)
+	skill_box.add_child(skill_context_label)
 
 
 func _build_content(root: VBoxContainer) -> void:
@@ -326,6 +339,7 @@ func _build_content(root: VBoxContainer) -> void:
 	main_tabs = TabContainer.new()
 	main_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	main_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_tabs.tab_changed.connect(_on_main_tab_changed)
 	content_grid.add_child(main_tabs)
 
 	var gatherables_tab := VBoxContainer.new()
@@ -401,79 +415,87 @@ func _build_gatherables_panel(parent: Container) -> void:
 	gatherables_root.add_theme_constant_override("separation", 8)
 	gatherables_margin.add_child(gatherables_root)
 
-	var gatherables_title := Label.new()
-	gatherables_title.text = "Gatherables"
-	gatherables_title.add_theme_font_size_override("font_size", 18)
-	gatherables_root.add_child(gatherables_title)
+	gatherable_skill_tabs = TabContainer.new()
+	gatherable_skill_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gatherable_skill_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	gatherable_skill_tabs.tab_changed.connect(_on_gatherable_skill_tab_changed)
+	gatherables_root.add_child(gatherable_skill_tabs)
 
-	var gatherables_scroll := ScrollContainer.new()
-	gatherables_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	gatherables_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	gatherables_root.add_child(gatherables_scroll)
+	for skill_id in _get_gatherable_skill_ids():
+		var gatherables_scroll := ScrollContainer.new()
+		gatherables_scroll.name = skill_id
+		gatherables_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		gatherables_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		gatherable_skill_tabs.add_child(gatherables_scroll)
+		gatherable_skill_tabs.set_tab_title(gatherable_skill_tabs.get_tab_count() - 1, _get_skill_name(skill_id))
 
-	var gatherables_box := VBoxContainer.new()
-	gatherables_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	gatherables_box.add_theme_constant_override("separation", 6)
-	gatherables_scroll.add_child(gatherables_box)
+		var gatherables_box := VBoxContainer.new()
+		gatherables_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		gatherables_box.add_theme_constant_override("separation", 6)
+		gatherables_scroll.add_child(gatherables_box)
 
-	for resource_id in gatherable_order:
-		var row_panel := PanelContainer.new()
-		row_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row_panel.custom_minimum_size = Vector2(0, 46)
-		gatherables_box.add_child(row_panel)
+		for resource_id in gatherable_order:
+			if _get_resource_skill_id(resource_id) != skill_id:
+				continue
 
-		var row_margin := MarginContainer.new()
-		row_margin.add_theme_constant_override("margin_left", 8)
-		row_margin.add_theme_constant_override("margin_top", 6)
-		row_margin.add_theme_constant_override("margin_right", 8)
-		row_margin.add_theme_constant_override("margin_bottom", 6)
-		row_panel.add_child(row_margin)
+			var row_panel := PanelContainer.new()
+			row_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row_panel.custom_minimum_size = Vector2(0, 46)
+			gatherables_box.add_child(row_panel)
 
-		var row_box := VBoxContainer.new()
-		row_box.add_theme_constant_override("separation", 4)
-		row_margin.add_child(row_box)
+			var row_margin := MarginContainer.new()
+			row_margin.add_theme_constant_override("margin_left", 8)
+			row_margin.add_theme_constant_override("margin_top", 6)
+			row_margin.add_theme_constant_override("margin_right", 8)
+			row_margin.add_theme_constant_override("margin_bottom", 6)
+			row_panel.add_child(row_margin)
 
-		var top_row := HBoxContainer.new()
-		top_row.add_theme_constant_override("separation", 8)
-		row_box.add_child(top_row)
+			var row_box := VBoxContainer.new()
+			row_box.add_theme_constant_override("separation", 4)
+			row_margin.add_child(row_box)
 
-		var name_label := Label.new()
-		name_label.text = _get_resource_name(resource_id)
-		name_label.custom_minimum_size = Vector2(80, 0)
-		name_label.add_theme_font_size_override("font_size", 15)
-		top_row.add_child(name_label)
+			var top_row := HBoxContainer.new()
+			top_row.add_theme_constant_override("separation", 8)
+			row_box.add_child(top_row)
 
-		var stats_label := Label.new()
-		stats_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		top_row.add_child(stats_label)
+			var name_label := Label.new()
+			name_label.text = _get_resource_name(resource_id)
+			name_label.custom_minimum_size = Vector2(100, 0)
+			name_label.add_theme_font_size_override("font_size", 15)
+			top_row.add_child(name_label)
 
-		var queue_button := Button.new()
-		queue_button.custom_minimum_size = Vector2(122, 0)
-		queue_button.pressed.connect(_queue_pickable.bind(resource_id))
-		top_row.add_child(queue_button)
+			var stats_label := Label.new()
+			stats_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			top_row.add_child(stats_label)
 
-		var bottom_row := HBoxContainer.new()
-		bottom_row.add_theme_constant_override("separation", 8)
-		row_box.add_child(bottom_row)
+			var queue_button := Button.new()
+			queue_button.custom_minimum_size = Vector2(122, 0)
+			queue_button.pressed.connect(_queue_pickable.bind(resource_id))
+			top_row.add_child(queue_button)
 
-		var gather_bar := ProgressBar.new()
-		gather_bar.min_value = 0
-		gather_bar.max_value = 100
-		gather_bar.show_percentage = false
-		gather_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		gather_bar.custom_minimum_size = Vector2(0, 8)
-		bottom_row.add_child(gather_bar)
+			var bottom_row := HBoxContainer.new()
+			bottom_row.add_theme_constant_override("separation", 8)
+			row_box.add_child(bottom_row)
 
-		resource_cards[resource_id] = {
-			"stats_label": stats_label,
-			"gather_bar": gather_bar,
-			"queue_button": queue_button,
-		}
+			var gather_bar := ProgressBar.new()
+			gather_bar.min_value = 0
+			gather_bar.max_value = 100
+			gather_bar.show_percentage = false
+			gather_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			gather_bar.custom_minimum_size = Vector2(0, 8)
+			bottom_row.add_child(gather_bar)
+
+			resource_cards[resource_id] = {
+				"stats_label": stats_label,
+				"gather_bar": gather_bar,
+				"queue_button": queue_button,
+			}
 
 
 func _build_queue_panel(parent: VBoxContainer) -> void:
 	var queue_panel := PanelContainer.new()
 	queue_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	queue_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	parent.add_child(queue_panel)
 
 	var queue_margin := MarginContainer.new()
@@ -506,7 +528,8 @@ func _build_queue_panel(parent: VBoxContainer) -> void:
 
 	queue_list = ItemList.new()
 	queue_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	queue_list.custom_minimum_size = Vector2(0, 84)
+	queue_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	queue_list.custom_minimum_size = Vector2(0, 140)
 	queue_box.add_child(queue_list)
 
 	clear_queue_button = Button.new()
@@ -687,7 +710,7 @@ func _queue_pickable(resource_id: String) -> void:
 	if not _can_queue_pickable(resource_id):
 		return
 
-	_queue_action(_make_gather_action(resource_id))
+	_queue_action_count(_make_gather_action(resource_id), _get_requested_queue_amount())
 
 
 func _craft_tool(tool_id: String) -> void:
@@ -706,6 +729,34 @@ func _craft_item(craftable_id: String) -> void:
 
 func _queue_action(action: Dictionary) -> void:
 	action_queue.append(action.duplicate(true))
+	_refresh_ui()
+
+	if current_action.is_empty():
+		_start_next_action()
+
+
+func _queue_action_count(action: Dictionary, amount: int) -> void:
+	if amount <= 0:
+		return
+
+	var queue_count := mini(amount, _get_free_queue_slots())
+	if queue_count <= 0:
+		return
+
+	var pipeline_state := _build_pipeline_end_state()
+	var queued_any := false
+
+	for _index in range(queue_count):
+		var simulation_result := _simulate_action_in_state(pipeline_state, action)
+		if not simulation_result["ran"]:
+			break
+
+		action_queue.append(action.duplicate(true))
+		queued_any = true
+
+	if not queued_any:
+		return
+
 	_refresh_ui()
 
 	if current_action.is_empty():
@@ -763,43 +814,36 @@ func _complete_current_action() -> void:
 			var resource_id := _get_action_id(action)
 			if inventory[resource_id] < _get_capacity(resource_id):
 				inventory[resource_id] += 1
-				_gain_gathering_exp(_get_resource_xp(resource_id))
+				_gain_skill_exp(_get_resource_skill_id(resource_id), _get_resource_xp(resource_id))
 		"craft_tool":
 			var tool_id := _get_action_id(action)
 			tools[tool_id]["durability"] = _get_tool_max_durability(tool_id)
-			_gain_crafting_exp(_get_tool_craft_xp(tool_id))
+			_gain_skill_exp("crafting", _get_tool_craft_xp(tool_id))
 		"craft_item":
 			var craftable_id := _get_action_id(action)
 			crafted_items[craftable_id] += 1
-			_gain_crafting_exp(_get_craftable_craft_xp(craftable_id))
+			_gain_skill_exp("crafting", _get_craftable_craft_xp(craftable_id))
 
 	current_action.clear()
 	_refresh_ui()
 	_start_next_action()
 
 
-func _gain_gathering_exp(amount: int) -> void:
-	var result := _simulate_exp_gain(gathering_level, gathering_exp, gathering_exp_to_next, amount)
-	gathering_level = result["level"]
-	gathering_exp = result["exp"]
-	gathering_exp_to_next = result["exp_to_next"]
-
-
-func _gain_crafting_exp(amount: int) -> void:
-	var result := _simulate_exp_gain(crafting_level, crafting_exp, crafting_exp_to_next, amount)
-	crafting_level = result["level"]
-	crafting_exp = result["exp"]
-	crafting_exp_to_next = result["exp_to_next"]
+func _gain_skill_exp(skill_id: String, amount: int) -> void:
+	var current_state: Dictionary = skill_states[skill_id]
+	var result := _simulate_exp_gain(
+		int(current_state["level"]),
+		int(current_state["exp"]),
+		int(current_state["exp_to_next"]),
+		amount
+	)
+	skill_states[skill_id] = result
 
 
 func _refresh_ui() -> void:
-	gathering_skill_label.text = "Gathering Lv %d" % gathering_level
-	gathering_exp_label.text = "%d / %d EXP" % [gathering_exp, gathering_exp_to_next]
-	gathering_exp_bar.value = float(gathering_exp) / float(gathering_exp_to_next) * 100.0
-	crafting_skill_label.text = "Crafting Lv %d" % crafting_level
-	crafting_exp_label.text = "%d / %d EXP" % [crafting_exp, crafting_exp_to_next]
-	crafting_exp_bar.value = float(crafting_exp) / float(crafting_exp_to_next) * 100.0
-	next_unlock_label.text = _get_next_unlock_text()
+	for skill_id in skill_order:
+		_refresh_skill_row(skill_id)
+	_refresh_skill_context_label()
 
 	queue_list.clear()
 	if not current_action.is_empty():
@@ -831,32 +875,27 @@ func _refresh_resource_card(resource_id: String) -> void:
 	var current_capacity := _get_capacity(resource_id)
 	var is_current_action := _is_current_gather_action(resource_id)
 	var block_reason := _get_gather_queue_block_reason(resource_id)
-	var status_text := "Ready"
 	var display_duration := _get_gather_action_duration(resource_id)
 
 	if not _is_resource_unlocked(resource_id):
-		status_text = "Unlock Lv %d" % unlock_level
-		stats_label.text = "Lv %d | %.2fs | %d XP | %d/%d | %s" % [
+		stats_label.text = "Lv %d | %.2fs | %d XP | %d/%d" % [
 			unlock_level,
 			display_duration,
 			_get_resource_xp(resource_id),
 			inventory[resource_id],
 			current_capacity,
-			status_text,
 		]
 		queue_button.disabled = true
 		queue_button.text = "Locked"
+		queue_button.tooltip_text = ""
 		return
 
 	if is_current_action:
 		display_duration = maxf(0.001, float(current_action["duration"]))
-		status_text = "Gathering %s" % _format_seconds(_get_current_action_time_left())
-	else:
-		status_text = "Ready"
 
 	if block_reason != "" and not is_current_action:
-		status_text = block_reason
 		queue_button.disabled = true
+		queue_button.tooltip_text = ""
 		if block_reason.begins_with("Need "):
 			queue_button.text = block_reason
 		elif block_reason == "Full at end of queue":
@@ -868,14 +907,14 @@ func _refresh_resource_card(resource_id: String) -> void:
 	else:
 		queue_button.disabled = false
 		queue_button.text = "Queue +1" if is_current_action else "Queue"
+		queue_button.tooltip_text = _get_queue_button_tooltip()
 
-	stats_label.text = "Lv %d | %.2fs | %d XP | %d/%d | %s" % [
+	stats_label.text = "Lv %d | %.2fs | %d XP | %d/%d" % [
 		unlock_level,
 		display_duration,
 		_get_resource_xp(resource_id),
 		inventory[resource_id],
 		current_capacity,
-		status_text,
 	]
 
 
@@ -1049,6 +1088,46 @@ func _refresh_runtime_status() -> void:
 	_update_gather_bars()
 
 
+func _refresh_queue_button_hover_previews() -> void:
+	for resource_id in gatherable_order:
+		var card: Dictionary = resource_cards[resource_id]
+		var queue_button: Button = card["queue_button"]
+		if queue_button.disabled:
+			continue
+
+		var is_current_action := _is_current_gather_action(resource_id)
+		var base_text := "Queue +1" if is_current_action else "Queue"
+		queue_button.tooltip_text = _get_queue_button_tooltip()
+
+		if not queue_button.is_hovered():
+			queue_button.text = base_text
+			continue
+
+		if Input.is_key_pressed(KEY_CTRL):
+			queue_button.text = "Queue +%d" % _get_free_queue_slots()
+		elif Input.is_key_pressed(KEY_SHIFT):
+			queue_button.text = "Queue +5"
+		else:
+			queue_button.text = base_text
+
+
+func _get_queue_button_tooltip() -> String:
+	return "Click: queue 1\nShift: queue 5\nCtrl: queue max"
+
+
+func _get_requested_queue_amount() -> int:
+	if Input.is_key_pressed(KEY_CTRL):
+		return _get_free_queue_slots()
+	if Input.is_key_pressed(KEY_SHIFT):
+		return 5
+
+	return 1
+
+
+func _get_free_queue_slots() -> int:
+	return maxi(0, _get_queue_capacity() - action_queue.size())
+
+
 func _update_gather_bars() -> void:
 	for resource_id in gatherable_order:
 		var card: Dictionary = resource_cards[resource_id]
@@ -1073,7 +1152,11 @@ func _get_action_duration_for_state(action: Dictionary, state: Dictionary) -> fl
 	var action_id := _get_action_id(action)
 	match action_type:
 		"gather":
-			return _get_gather_action_duration_for_state(action_id, int(state["gathering_level"]), int(upgrade_levels["tooling"]))
+			return _get_gather_action_duration_for_state(
+				action_id,
+				int(state["skills"][_get_resource_skill_id(action_id)]["level"]),
+				int(upgrade_levels["tooling"])
+			)
 		"craft_tool":
 			return _get_tool_craft_time(action_id)
 		"craft_item":
@@ -1123,13 +1206,95 @@ func _simulate_exp_gain(level_value: int, exp_value: int, exp_to_next_value: int
 	}
 
 
-func _get_next_unlock_text() -> String:
-	for resource_id in gatherable_order:
-		var unlock_level := _get_unlock_level(resource_id)
-		if gathering_level < unlock_level:
-			return "Next unlock: %s at Gathering Level %d" % [_get_resource_name(resource_id), unlock_level]
+func _refresh_skill_row(skill_id: String) -> void:
+	var row: Dictionary = skill_rows[skill_id]
+	var skill_level := _get_skill_level(skill_id)
+	var skill_exp := _get_skill_exp(skill_id)
+	var skill_exp_to_next := _get_skill_exp_to_next(skill_id)
+	var panel: PanelContainer = row["panel"]
+	var skill_label: Label = row["skill_label"]
+	var exp_label: Label = row["exp_label"]
+	var exp_bar: ProgressBar = row["exp_bar"]
+	var is_active := skill_id == _get_active_skill_id()
 
-	return "All gatherables unlocked. Keep upgrading your setup."
+	skill_label.text = "%s Lv %d" % [_get_skill_name(skill_id), skill_level]
+	exp_label.text = "%d / %d" % [skill_exp, skill_exp_to_next]
+	exp_bar.value = float(skill_exp) / float(skill_exp_to_next) * 100.0
+	panel.add_theme_stylebox_override("panel", _make_skill_card_style(is_active))
+	skill_label.add_theme_color_override("font_color", Color(1, 1, 1, 1) if is_active else Color(0.82, 0.82, 0.82, 1))
+	exp_label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9, 1) if is_active else Color(0.65, 0.65, 0.65, 1))
+
+
+func _refresh_skill_context_label() -> void:
+	if skill_context_label == null:
+		return
+
+	skill_context_label.text = _get_skill_context_text()
+
+
+func _get_skill_context_text() -> String:
+	var active_skill_id := _get_active_skill_id()
+	if active_skill_id == "":
+		return "Upgrades improve gathering speed, bag size, and queue size across skills."
+
+	if active_skill_id == "crafting":
+		return "Crafting levels up by making tools and buildables."
+
+	return "%s: %s" % [_get_skill_name(active_skill_id), _get_next_unlock_text_for_skill(active_skill_id)]
+
+
+func _get_active_skill_id() -> String:
+	if main_tabs == null or main_tabs.get_tab_count() == 0:
+		return ""
+
+	var active_tab_title := main_tabs.get_tab_title(main_tabs.current_tab)
+	if active_tab_title == "Tools" or active_tab_title == "Buildables":
+		return "crafting"
+	if active_tab_title != "Gatherables":
+		return ""
+	if gatherable_skill_tabs == null or gatherable_skill_tabs.get_tab_count() == 0:
+		return ""
+
+	return String(gatherable_skill_tabs.get_child(gatherable_skill_tabs.current_tab).name)
+
+
+func _make_skill_card_style(is_active: bool) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.21, 0.21, 0.21, 1) if is_active else Color(0.16, 0.16, 0.16, 1)
+	style.border_width_left = 1
+	style.border_width_top = 1
+	style.border_width_right = 1
+	style.border_width_bottom = 1
+	style.border_color = Color(0.75, 0.75, 0.75, 0.95) if is_active else Color(0.24, 0.24, 0.24, 1)
+	style.corner_radius_top_left = 4
+	style.corner_radius_top_right = 4
+	style.corner_radius_bottom_right = 4
+	style.corner_radius_bottom_left = 4
+	return style
+
+
+func _on_main_tab_changed(_tab: int) -> void:
+	_refresh_skill_context_label()
+	for skill_id in skill_order:
+		_refresh_skill_row(skill_id)
+
+
+func _on_gatherable_skill_tab_changed(_tab: int) -> void:
+	_refresh_skill_context_label()
+	for skill_id in skill_order:
+		_refresh_skill_row(skill_id)
+
+
+func _get_next_unlock_text_for_skill(skill_id: String) -> String:
+	for resource_id in gatherable_order:
+		if _get_resource_skill_id(resource_id) != skill_id:
+			continue
+
+		var unlock_level := _get_unlock_level(resource_id)
+		if _get_skill_level(skill_id) < unlock_level:
+			return "Next: %s Lv %d" % [_get_resource_name(resource_id), unlock_level]
+
+	return "All unlocked"
 
 
 func _get_capacity(resource_id: String) -> int:
@@ -1156,6 +1321,11 @@ func _get_resource_name(resource_id: String) -> String:
 	return String(gatherable["name"])
 
 
+func _get_resource_skill_id(resource_id: String) -> String:
+	var gatherable: Dictionary = gatherables[resource_id]
+	return String(gatherable.get("skill", "gathering"))
+
+
 func _get_required_tool_id(resource_id: String) -> String:
 	var gatherable: Dictionary = gatherables[resource_id]
 	if not gatherable.has("required_tool"):
@@ -1177,7 +1347,42 @@ func _resource_requires_tool(resource_id: String) -> bool:
 
 
 func _is_resource_unlocked(resource_id: String) -> bool:
-	return gathering_level >= _get_unlock_level(resource_id)
+	return _get_skill_level(_get_resource_skill_id(resource_id)) >= _get_unlock_level(resource_id)
+
+
+func _get_skill_name(skill_id: String) -> String:
+	var skill: Dictionary = skill_definitions[skill_id]
+	return String(skill["name"])
+
+
+func _get_skill_level(skill_id: String) -> int:
+	return int(skill_states[skill_id]["level"])
+
+
+func _get_skill_exp(skill_id: String) -> int:
+	return int(skill_states[skill_id]["exp"])
+
+
+func _get_skill_exp_to_next(skill_id: String) -> int:
+	return int(skill_states[skill_id]["exp_to_next"])
+
+
+func _skill_has_gatherables(skill_id: String) -> bool:
+	for resource_id in gatherable_order:
+		if _get_resource_skill_id(resource_id) == skill_id:
+			return true
+
+	return false
+
+
+func _get_gatherable_skill_ids() -> Array:
+	var ids: Array = []
+	for skill_id in skill_order:
+		var skill: Dictionary = skill_definitions[skill_id]
+		if bool(skill.get("gatherable_tab", false)) and _skill_has_gatherables(skill_id):
+			ids.append(skill_id)
+
+	return ids
 
 
 func _get_tool_name(tool_id: String) -> String:
@@ -1260,12 +1465,7 @@ func _create_simulation_state() -> Dictionary:
 		"inventory": inventory.duplicate(true),
 		"tools": tools.duplicate(true),
 		"crafted_items": crafted_items.duplicate(true),
-		"gathering_level": gathering_level,
-		"gathering_exp": gathering_exp,
-		"gathering_exp_to_next": gathering_exp_to_next,
-		"crafting_level": crafting_level,
-		"crafting_exp": crafting_exp,
-		"crafting_exp_to_next": crafting_exp_to_next,
+		"skills": skill_states.duplicate(true),
 	}
 
 
@@ -1342,37 +1542,35 @@ func _apply_action_completion_to_state(state: Dictionary, action: Dictionary) ->
 		"gather":
 			if int(state["inventory"][action_id]) < _get_capacity(action_id):
 				state["inventory"][action_id] += 1
+				var gather_skill_id := _get_resource_skill_id(action_id)
+				var gather_skill_state: Dictionary = state["skills"][gather_skill_id]
 				var gather_result := _simulate_exp_gain(
-					int(state["gathering_level"]),
-					int(state["gathering_exp"]),
-					int(state["gathering_exp_to_next"]),
+					int(gather_skill_state["level"]),
+					int(gather_skill_state["exp"]),
+					int(gather_skill_state["exp_to_next"]),
 					_get_resource_xp(action_id)
 				)
-				state["gathering_level"] = gather_result["level"]
-				state["gathering_exp"] = gather_result["exp"]
-				state["gathering_exp_to_next"] = gather_result["exp_to_next"]
+				state["skills"][gather_skill_id] = gather_result
 		"craft_tool":
+			var crafting_skill_state: Dictionary = state["skills"]["crafting"]
 			state["tools"][action_id]["durability"] = _get_tool_max_durability(action_id)
 			var craft_result := _simulate_exp_gain(
-				int(state["crafting_level"]),
-				int(state["crafting_exp"]),
-				int(state["crafting_exp_to_next"]),
+				int(crafting_skill_state["level"]),
+				int(crafting_skill_state["exp"]),
+				int(crafting_skill_state["exp_to_next"]),
 				_get_tool_craft_xp(action_id)
 			)
-			state["crafting_level"] = craft_result["level"]
-			state["crafting_exp"] = craft_result["exp"]
-			state["crafting_exp_to_next"] = craft_result["exp_to_next"]
+			state["skills"]["crafting"] = craft_result
 		"craft_item":
+			var item_crafting_skill_state: Dictionary = state["skills"]["crafting"]
 			state["crafted_items"][action_id] += 1
 			var item_craft_result := _simulate_exp_gain(
-				int(state["crafting_level"]),
-				int(state["crafting_exp"]),
-				int(state["crafting_exp_to_next"]),
+				int(item_crafting_skill_state["level"]),
+				int(item_crafting_skill_state["exp"]),
+				int(item_crafting_skill_state["exp_to_next"]),
 				_get_craftable_craft_xp(action_id)
 			)
-			state["crafting_level"] = item_craft_result["level"]
-			state["crafting_exp"] = item_craft_result["exp"]
-			state["crafting_exp_to_next"] = item_craft_result["exp_to_next"]
+			state["skills"]["crafting"] = item_craft_result
 
 
 func _get_action_queue_label(action: Dictionary) -> String:
@@ -1577,10 +1775,18 @@ func _update_responsive_layout() -> void:
 	content_grid.columns = 1 if is_stacked else 2
 
 	if is_stacked:
+		main_tabs.custom_minimum_size = Vector2(0, 0)
 		queue_column.custom_minimum_size = Vector2(0, 0)
 		queue_column.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	else:
-		queue_column.custom_minimum_size = Vector2(340, 0)
+		var available_width := maxf(0.0, size.x - 44.0)
+		var queue_width := maxf(320.0, floor(available_width * 0.4))
+		var tabs_width := maxf(0.0, available_width - queue_width)
+		main_tabs.custom_minimum_size = Vector2(tabs_width, 0)
+		queue_column.custom_minimum_size = Vector2(queue_width, 0)
 		queue_column.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
-	main_tabs.custom_minimum_size = Vector2(0, 0)
+	if is_stacked:
+		queue_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	else:
+		queue_column.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN

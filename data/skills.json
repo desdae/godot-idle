@@ -1,0 +1,22 @@
+[
+  {
+    "id": "gathering",
+    "name": "Gathering",
+    "gatherable_tab": true
+  },
+  {
+    "id": "woodcutting",
+    "name": "Woodcutting",
+    "gatherable_tab": true
+  },
+  {
+    "id": "mining",
+    "name": "Mining",
+    "gatherable_tab": true
+  },
+  {
+    "id": "crafting",
+    "name": "Crafting",
+    "gatherable_tab": false
+  }
+]
