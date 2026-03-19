@@ -24,6 +24,16 @@
 	"unlock_level": 2
   },
   {
+	"id": "grass",
+	"name": "Grass",
+	"base_time": 1.9,
+	"xp": 2,
+	"base_capacity": 16,
+	"unlock_level": 2,
+	"required_tool": "stone_knife",
+	"tool_durability_cost": 1
+  },
+  {
 	"id": "logs",
 	"name": "Logs",
 	"base_time": 3.3,

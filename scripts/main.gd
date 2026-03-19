@@ -15,11 +15,14 @@ var gatherable_order: Array = []
 var gatherables := {}
 var tool_order: Array = []
 var tool_definitions := {}
+var craftable_order: Array = []
+var craftables := {}
 var upgrade_order: Array = []
 var upgrades := {}
 
 var inventory := {}
 var tools := {}
+var crafted_items := {}
 var action_queue: Array[Dictionary] = []
 var current_action := {}
 var current_action_completion_pending := false
@@ -50,8 +53,10 @@ var clear_queue_button: Button
 var page_margin: MarginContainer
 var root_box: VBoxContainer
 var content_grid: GridContainer
-var sidebar_scroll: ScrollContainer
+var main_tabs: TabContainer
+var queue_column: VBoxContainer
 var tool_cards := {}
+var craftable_cards := {}
 
 
 func _ready() -> void:
@@ -96,6 +101,12 @@ func _load_game_data() -> bool:
 		return false
 	tool_order = tool_data["order"]
 	tool_definitions = tool_data["entries"]
+
+	var craftable_data := _load_ordered_data_file("res://data/craftables.json")
+	if not craftable_data.get("ok", false):
+		return false
+	craftable_order = craftable_data["order"]
+	craftables = craftable_data["entries"]
 
 	var upgrade_data := _load_ordered_data_file("res://data/upgrades.json")
 	if not upgrade_data.get("ok", false):
@@ -166,6 +177,10 @@ func _initialize_state() -> void:
 		tools[tool_id] = {
 			"durability": 0,
 		}
+
+	crafted_items.clear()
+	for craftable_id in craftable_order:
+		crafted_items[craftable_id] = 0
 
 	upgrade_levels.clear()
 	for upgrade_id in upgrade_order:
@@ -308,23 +323,63 @@ func _build_content(root: VBoxContainer) -> void:
 	content_grid.add_theme_constant_override("v_separation", 12)
 	root.add_child(content_grid)
 
-	_build_gatherables_panel(content_grid)
+	main_tabs = TabContainer.new()
+	main_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	main_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content_grid.add_child(main_tabs)
 
-	sidebar_scroll = ScrollContainer.new()
-	sidebar_scroll.custom_minimum_size = Vector2(320, 0)
-	sidebar_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sidebar_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	sidebar_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	content_grid.add_child(sidebar_scroll)
+	var gatherables_tab := VBoxContainer.new()
+	gatherables_tab.name = "Gatherables"
+	gatherables_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gatherables_tab.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_tabs.add_child(gatherables_tab)
+	_build_gatherables_panel(gatherables_tab)
 
-	var sidebar := VBoxContainer.new()
-	sidebar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sidebar.add_theme_constant_override("separation", 10)
-	sidebar_scroll.add_child(sidebar)
+	var tools_tab_scroll := ScrollContainer.new()
+	tools_tab_scroll.name = "Tools"
+	tools_tab_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tools_tab_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tools_tab_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	main_tabs.add_child(tools_tab_scroll)
 
-	_build_queue_panel(sidebar)
-	_build_tools_panel(sidebar)
-	_build_upgrades_panel(sidebar)
+	var tools_tab := VBoxContainer.new()
+	tools_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tools_tab.add_theme_constant_override("separation", 10)
+	tools_tab_scroll.add_child(tools_tab)
+	_build_tools_panel(tools_tab)
+
+	var buildables_tab_scroll := ScrollContainer.new()
+	buildables_tab_scroll.name = "Buildables"
+	buildables_tab_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	buildables_tab_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	buildables_tab_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	main_tabs.add_child(buildables_tab_scroll)
+
+	var buildables_tab := VBoxContainer.new()
+	buildables_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	buildables_tab.add_theme_constant_override("separation", 10)
+	buildables_tab_scroll.add_child(buildables_tab)
+	_build_craftables_panel(buildables_tab)
+
+	var upgrades_tab_scroll := ScrollContainer.new()
+	upgrades_tab_scroll.name = "Upgrades"
+	upgrades_tab_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	upgrades_tab_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	upgrades_tab_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	main_tabs.add_child(upgrades_tab_scroll)
+
+	var upgrades_tab := VBoxContainer.new()
+	upgrades_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	upgrades_tab.add_theme_constant_override("separation", 10)
+	upgrades_tab_scroll.add_child(upgrades_tab)
+	_build_upgrades_panel(upgrades_tab)
+
+	queue_column = VBoxContainer.new()
+	queue_column.custom_minimum_size = Vector2(340, 0)
+	queue_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	queue_column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content_grid.add_child(queue_column)
+	_build_queue_panel(queue_column)
 
 
 func _build_gatherables_panel(parent: Container) -> void:
@@ -511,6 +566,60 @@ func _build_tools_panel(parent: VBoxContainer) -> void:
 		}
 
 
+func _build_craftables_panel(parent: VBoxContainer) -> void:
+	if craftable_order.is_empty():
+		return
+
+	var craftables_panel := PanelContainer.new()
+	craftables_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(craftables_panel)
+
+	var craftables_margin := MarginContainer.new()
+	craftables_margin.add_theme_constant_override("margin_left", 10)
+	craftables_margin.add_theme_constant_override("margin_top", 8)
+	craftables_margin.add_theme_constant_override("margin_right", 10)
+	craftables_margin.add_theme_constant_override("margin_bottom", 8)
+	craftables_panel.add_child(craftables_margin)
+
+	var craftables_box := VBoxContainer.new()
+	craftables_box.add_theme_constant_override("separation", 4)
+	craftables_margin.add_child(craftables_box)
+
+	var craftables_title := Label.new()
+	craftables_title.text = "Buildables"
+	craftables_title.add_theme_font_size_override("font_size", 18)
+	craftables_box.add_child(craftables_title)
+
+	for craftable_id in craftable_order:
+		var craftable_row := VBoxContainer.new()
+		craftable_row.add_theme_constant_override("separation", 2)
+		craftables_box.add_child(craftable_row)
+
+		var name_label := Label.new()
+		name_label.text = _get_craftable_name(craftable_id)
+		name_label.add_theme_font_size_override("font_size", 15)
+		craftable_row.add_child(name_label)
+
+		var status_label := Label.new()
+		status_label.add_theme_font_size_override("font_size", 14)
+		craftable_row.add_child(status_label)
+
+		var detail_label := Label.new()
+		detail_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		detail_label.add_theme_font_size_override("font_size", 13)
+		craftable_row.add_child(detail_label)
+
+		var button := Button.new()
+		button.pressed.connect(_craft_item.bind(craftable_id))
+		craftable_row.add_child(button)
+
+		craftable_cards[craftable_id] = {
+			"status_label": status_label,
+			"detail_label": detail_label,
+			"button": button,
+		}
+
+
 func _build_upgrades_panel(parent: VBoxContainer) -> void:
 	var upgrades_panel := PanelContainer.new()
 	upgrades_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -588,6 +697,13 @@ func _craft_tool(tool_id: String) -> void:
 	_queue_action(_make_craft_tool_action(tool_id))
 
 
+func _craft_item(craftable_id: String) -> void:
+	if not _can_queue_craftable_action(craftable_id):
+		return
+
+	_queue_action(_make_craft_item_action(craftable_id))
+
+
 func _queue_action(action: Dictionary) -> void:
 	action_queue.append(action.duplicate(true))
 	_refresh_ui()
@@ -622,6 +738,7 @@ func _start_next_action() -> void:
 		_apply_action_start_to_state(live_state, next_action)
 		inventory = live_state["inventory"]
 		tools = live_state["tools"]
+		crafted_items = live_state["crafted_items"]
 		current_action = {
 			"type": _get_action_type(next_action),
 			"id": _get_action_id(next_action),
@@ -651,6 +768,10 @@ func _complete_current_action() -> void:
 			var tool_id := _get_action_id(action)
 			tools[tool_id]["durability"] = _get_tool_max_durability(tool_id)
 			_gain_crafting_exp(_get_tool_craft_xp(tool_id))
+		"craft_item":
+			var craftable_id := _get_action_id(action)
+			crafted_items[craftable_id] += 1
+			_gain_crafting_exp(_get_craftable_craft_xp(craftable_id))
 
 	current_action.clear()
 	_refresh_ui()
@@ -690,6 +811,7 @@ func _refresh_ui() -> void:
 
 	clear_queue_button.disabled = action_queue.is_empty()
 	_refresh_tool_panel()
+	_refresh_craftable_panel()
 
 	for resource_id in gatherable_order:
 		_refresh_resource_card(resource_id)
@@ -762,6 +884,11 @@ func _refresh_tool_panel() -> void:
 		_refresh_tool_card(tool_id)
 
 
+func _refresh_craftable_panel() -> void:
+	for craftable_id in craftable_order:
+		_refresh_craftable_card(craftable_id)
+
+
 func _refresh_tool_card(tool_id: String) -> void:
 	var card: Dictionary = tool_cards[tool_id]
 	var status_label: Label = card["status_label"]
@@ -787,10 +914,11 @@ func _refresh_tool_card(tool_id: String) -> void:
 	else:
 		status_label.text = "%s: Not crafted" % _get_tool_name(tool_id)
 
-	detail_label.text = "%.1fs craft | +%d XP | Cost: %s" % [
+	detail_label.text = "%.1fs craft | +%d XP | Cost: %s | %s" % [
 		_get_tool_craft_time(tool_id),
 		_get_tool_craft_xp(tool_id),
 		_format_cost(_get_tool_craft_cost(tool_id)),
+		_get_tool_use_text(tool_id),
 	]
 
 	if is_crafting_now:
@@ -803,6 +931,41 @@ func _refresh_tool_card(tool_id: String) -> void:
 		button.text = "Queue %s" % _get_tool_name(tool_id)
 
 	button.disabled = is_crafting_now or is_crafting_queued or block_reason != ""
+
+
+func _refresh_craftable_card(craftable_id: String) -> void:
+	var card: Dictionary = craftable_cards[craftable_id]
+	var status_label: Label = card["status_label"]
+	var detail_label: Label = card["detail_label"]
+	var button: Button = card["button"]
+	var owned_count := _get_crafted_item_count(craftable_id)
+	var is_crafting_now := not current_action.is_empty() and _get_action_type(current_action) == "craft_item" and _get_action_id(current_action) == craftable_id
+	var block_reason := _get_craftable_queue_block_reason(craftable_id)
+
+	if is_crafting_now:
+		status_label.text = "%s: Building (%s left)" % [
+			_get_craftable_name(craftable_id),
+			_format_seconds(_get_current_action_time_left()),
+		]
+	else:
+		status_label.text = "%s: Built %d" % [
+			_get_craftable_name(craftable_id),
+			owned_count,
+		]
+
+	detail_label.text = "%.1fs craft | +%d XP | Cost: %s | %s" % [
+		_get_craftable_craft_time(craftable_id),
+		_get_craftable_craft_xp(craftable_id),
+		_format_cost(_get_craftable_craft_cost(craftable_id)),
+		_get_craftable_use_text(craftable_id),
+	]
+
+	if is_crafting_now:
+		button.text = "Building..."
+	else:
+		button.text = "Queue %s" % _get_craftable_name(craftable_id)
+
+	button.disabled = is_crafting_now or block_reason != ""
 
 
 func _refresh_upgrade_card(upgrade_id: String) -> void:
@@ -831,6 +994,10 @@ func _can_queue_tool_action(tool_id: String) -> bool:
 	return _get_tool_queue_block_reason(tool_id) == ""
 
 
+func _can_queue_craftable_action(craftable_id: String) -> bool:
+	return _get_craftable_queue_block_reason(craftable_id) == ""
+
+
 func _get_gather_queue_block_reason(resource_id: String) -> String:
 	if action_queue.size() >= _get_queue_capacity():
 		return "Queue full"
@@ -845,6 +1012,14 @@ func _get_tool_queue_block_reason(tool_id: String) -> String:
 
 	var pipeline_state := _build_pipeline_end_state()
 	return _get_action_block_reason_in_state(_make_craft_tool_action(tool_id), pipeline_state)
+
+
+func _get_craftable_queue_block_reason(craftable_id: String) -> String:
+	if action_queue.size() >= _get_queue_capacity():
+		return "Queue full"
+
+	var pipeline_state := _build_pipeline_end_state()
+	return _get_action_block_reason_in_state(_make_craft_item_action(craftable_id), pipeline_state)
 
 
 func _refresh_runtime_status() -> void:
@@ -901,6 +1076,8 @@ func _get_action_duration_for_state(action: Dictionary, state: Dictionary) -> fl
 			return _get_gather_action_duration_for_state(action_id, int(state["gathering_level"]), int(upgrade_levels["tooling"]))
 		"craft_tool":
 			return _get_tool_craft_time(action_id)
+		"craft_item":
+			return _get_craftable_craft_time(action_id)
 		_:
 			return 0.0
 
@@ -1032,6 +1209,40 @@ func _get_tool_durability(tool_id: String) -> int:
 	return int(tools[tool_id]["durability"])
 
 
+func _get_tool_use_text(tool_id: String) -> String:
+	var tool: Dictionary = tool_definitions[tool_id]
+	return String(tool.get("use_text", ""))
+
+
+func _get_craftable_name(craftable_id: String) -> String:
+	var craftable: Dictionary = craftables[craftable_id]
+	return String(craftable["name"])
+
+
+func _get_craftable_craft_cost(craftable_id: String) -> Dictionary:
+	var craftable: Dictionary = craftables[craftable_id]
+	return Dictionary(craftable["craft_cost"])
+
+
+func _get_craftable_craft_time(craftable_id: String) -> float:
+	var craftable: Dictionary = craftables[craftable_id]
+	return float(craftable["craft_time"])
+
+
+func _get_craftable_craft_xp(craftable_id: String) -> int:
+	var craftable: Dictionary = craftables[craftable_id]
+	return int(craftable["craft_xp"])
+
+
+func _get_craftable_use_text(craftable_id: String) -> String:
+	var craftable: Dictionary = craftables[craftable_id]
+	return String(craftable.get("use_text", ""))
+
+
+func _get_crafted_item_count(craftable_id: String) -> int:
+	return int(crafted_items[craftable_id])
+
+
 func _build_pipeline_end_state() -> Dictionary:
 	var state := _create_simulation_state()
 
@@ -1048,6 +1259,7 @@ func _create_simulation_state() -> Dictionary:
 	return {
 		"inventory": inventory.duplicate(true),
 		"tools": tools.duplicate(true),
+		"crafted_items": crafted_items.duplicate(true),
 		"gathering_level": gathering_level,
 		"gathering_exp": gathering_exp,
 		"gathering_exp_to_next": gathering_exp_to_next,
@@ -1094,6 +1306,10 @@ func _get_action_block_reason_in_state(action: Dictionary, state: Dictionary) ->
 			if not _can_afford_inventory(state["inventory"], _get_tool_craft_cost(action_id)):
 				return "Need %s" % _format_cost(_get_tool_craft_cost(action_id))
 			return ""
+		"craft_item":
+			if not _can_afford_inventory(state["inventory"], _get_craftable_craft_cost(action_id)):
+				return "Need %s" % _format_cost(_get_craftable_craft_cost(action_id))
+			return ""
 		_:
 			return "Unknown action"
 
@@ -1113,6 +1329,10 @@ func _apply_action_start_to_state(state: Dictionary, action: Dictionary) -> void
 			var craft_cost := _get_tool_craft_cost(action_id)
 			for resource_id in craft_cost.keys():
 				state["inventory"][resource_id] -= int(craft_cost[resource_id])
+		"craft_item":
+			var item_craft_cost := _get_craftable_craft_cost(action_id)
+			for resource_id in item_craft_cost.keys():
+				state["inventory"][resource_id] -= int(item_craft_cost[resource_id])
 
 
 func _apply_action_completion_to_state(state: Dictionary, action: Dictionary) -> void:
@@ -1142,6 +1362,17 @@ func _apply_action_completion_to_state(state: Dictionary, action: Dictionary) ->
 			state["crafting_level"] = craft_result["level"]
 			state["crafting_exp"] = craft_result["exp"]
 			state["crafting_exp_to_next"] = craft_result["exp_to_next"]
+		"craft_item":
+			state["crafted_items"][action_id] += 1
+			var item_craft_result := _simulate_exp_gain(
+				int(state["crafting_level"]),
+				int(state["crafting_exp"]),
+				int(state["crafting_exp_to_next"]),
+				_get_craftable_craft_xp(action_id)
+			)
+			state["crafting_level"] = item_craft_result["level"]
+			state["crafting_exp"] = item_craft_result["exp"]
+			state["crafting_exp_to_next"] = item_craft_result["exp_to_next"]
 
 
 func _get_action_queue_label(action: Dictionary) -> String:
@@ -1150,6 +1381,8 @@ func _get_action_queue_label(action: Dictionary) -> String:
 			return _get_resource_name(_get_action_id(action))
 		"craft_tool":
 			return "Craft %s" % _get_tool_name(_get_action_id(action))
+		"craft_item":
+			return "Build %s" % _get_craftable_name(_get_action_id(action))
 		_:
 			return "Unknown"
 
@@ -1160,6 +1393,8 @@ func _get_action_progress_label(action: Dictionary) -> String:
 			return "Gathering %s" % _get_resource_name(_get_action_id(action))
 		"craft_tool":
 			return "Crafting %s" % _get_tool_name(_get_action_id(action))
+		"craft_item":
+			return "Building %s" % _get_craftable_name(_get_action_id(action))
 		_:
 			return "Working"
 
@@ -1175,6 +1410,13 @@ func _make_craft_tool_action(tool_id: String) -> Dictionary:
 	return {
 		"type": "craft_tool",
 		"id": tool_id,
+	}
+
+
+func _make_craft_item_action(craftable_id: String) -> Dictionary:
+	return {
+		"type": "craft_item",
+		"id": craftable_id,
 	}
 
 
@@ -1327,17 +1569,18 @@ func _get_current_action_time_left() -> float:
 
 
 func _update_responsive_layout() -> void:
-	if page_margin == null or content_grid == null or sidebar_scroll == null:
+	if page_margin == null or main_tabs == null or content_grid == null or queue_column == null:
 		return
 
 	page_margin.custom_minimum_size = Vector2(maxf(0.0, size.x), 0.0)
-
 	var is_stacked := size.x < layout_stack_breakpoint
 	content_grid.columns = 1 if is_stacked else 2
 
 	if is_stacked:
-		sidebar_scroll.custom_minimum_size = Vector2(0, 0)
-		sidebar_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		queue_column.custom_minimum_size = Vector2(0, 0)
+		queue_column.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	else:
-		sidebar_scroll.custom_minimum_size = Vector2(340, 0)
-		sidebar_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		queue_column.custom_minimum_size = Vector2(340, 0)
+		queue_column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	main_tabs.custom_minimum_size = Vector2(0, 0)

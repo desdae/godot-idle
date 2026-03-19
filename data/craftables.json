@@ -1,0 +1,13 @@
+[
+  {
+	"id": "firepit",
+	"name": "Firepit",
+	"craft_time": 12.0,
+	"craft_xp": 8,
+	"craft_cost": {
+	  "logs": 5,
+	  "grass": 5
+	},
+	"use_text": "A sturdy campsite fixture built from Logs and Grass."
+  }
+]

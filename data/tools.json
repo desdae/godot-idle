@@ -1,5 +1,17 @@
 [
   {
+	"id": "stone_knife",
+	"name": "Stone Knife",
+	"craft_time": 6.0,
+	"craft_xp": 3,
+	"max_durability": 80,
+	"craft_cost": {
+	  "stick": 1,
+	  "stone": 1
+	},
+	"use_text": "Needed for Grass. Each patch costs 1 durability."
+  },
+  {
 	"id": "stone_axe",
 	"name": "Stone Axe",
 	"craft_time": 10.0,
