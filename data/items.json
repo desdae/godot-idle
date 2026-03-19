@@ -1,0 +1,42 @@
+[
+  {
+    "id": "stick",
+    "name": "Stick",
+    "description": "Basic wood gathered by hand and used in many early recipes."
+  },
+  {
+    "id": "stone",
+    "name": "Stone",
+    "description": "A common mineral used for starter tools, upgrades, and construction."
+  },
+  {
+    "id": "berries",
+    "name": "Berries",
+    "description": "Foraged food that helps round out early gathering costs."
+  },
+  {
+    "id": "grass",
+    "name": "Grass",
+    "description": "Fibrous plant matter gathered with a Stone Knife for building and crafting."
+  },
+  {
+    "id": "logs",
+    "name": "Maple Logs",
+    "description": "Heavy wood harvested with a Stone Axe and used for structures and fuel."
+  },
+  {
+    "id": "flint",
+    "name": "Flint",
+    "description": "A harder stone that marks the transition into stronger crafting tiers."
+  },
+  {
+    "id": "ore",
+    "name": "Copper Ore",
+    "description": "Raw copper-bearing rock that can later be processed into metal goods."
+  },
+  {
+    "id": "coal",
+    "name": "Coal",
+    "description": "Fuel made from burning wood in a Firepit."
+  }
+]

@@ -15,16 +15,21 @@ var skill_order: Array = []
 var skill_definitions := {}
 var gatherable_order: Array = []
 var gatherables := {}
+var item_order: Array = []
+var items := {}
 var tool_order: Array = []
 var tool_definitions := {}
 var craftable_order: Array = []
 var craftables := {}
+var recipe_order: Array = []
+var recipes := {}
 var upgrade_order: Array = []
 var upgrades := {}
 
 var inventory := {}
 var tools := {}
 var crafted_items := {}
+var craftable_upgrade_levels := {}
 var action_queue: Array[Dictionary] = []
 var current_action := {}
 var current_action_completion_pending := false
@@ -50,6 +55,10 @@ var queue_column: VBoxContainer
 var gatherable_skill_tabs: TabContainer
 var tool_cards := {}
 var craftable_cards := {}
+var recipe_cards := {}
+var item_labels := {}
+var processing_station_cards := {}
+var processing_station_expanded := {}
 
 
 func _ready() -> void:
@@ -95,6 +104,12 @@ func _load_game_data() -> bool:
 	gatherable_order = gatherable_data["order"]
 	gatherables = gatherable_data["entries"]
 
+	var item_data := _load_ordered_data_file("res://data/items.json")
+	if not item_data.get("ok", false):
+		return false
+	item_order = item_data["order"]
+	items = item_data["entries"]
+
 	var tool_data := _load_ordered_data_file("res://data/tools.json")
 	if not tool_data.get("ok", false):
 		return false
@@ -106,6 +121,12 @@ func _load_game_data() -> bool:
 		return false
 	craftable_order = craftable_data["order"]
 	craftables = craftable_data["entries"]
+
+	var recipe_data := _load_ordered_data_file("res://data/recipes.json")
+	if not recipe_data.get("ok", false):
+		return false
+	recipe_order = recipe_data["order"]
+	recipes = recipe_data["entries"]
 
 	var upgrade_data := _load_ordered_data_file("res://data/upgrades.json")
 	if not upgrade_data.get("ok", false):
@@ -170,6 +191,8 @@ func _initialize_state() -> void:
 	inventory.clear()
 	for resource_id in gatherable_order:
 		inventory[resource_id] = 0
+	for item_id in item_order:
+		inventory[item_id] = 0
 
 	tools.clear()
 	for tool_id in tool_order:
@@ -180,6 +203,10 @@ func _initialize_state() -> void:
 	crafted_items.clear()
 	for craftable_id in craftable_order:
 		crafted_items[craftable_id] = 0
+
+	craftable_upgrade_levels.clear()
+	for craftable_id in craftable_order:
+		craftable_upgrade_levels[craftable_id] = 0
 
 	skill_states.clear()
 	for skill_id in skill_order:
@@ -374,6 +401,19 @@ func _build_content(root: VBoxContainer) -> void:
 	buildables_tab.add_theme_constant_override("separation", 10)
 	buildables_tab_scroll.add_child(buildables_tab)
 	_build_craftables_panel(buildables_tab)
+
+	var processing_tab_scroll := ScrollContainer.new()
+	processing_tab_scroll.name = "Processing"
+	processing_tab_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	processing_tab_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	processing_tab_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	main_tabs.add_child(processing_tab_scroll)
+
+	var processing_tab := VBoxContainer.new()
+	processing_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	processing_tab.add_theme_constant_override("separation", 10)
+	processing_tab_scroll.add_child(processing_tab)
+	_build_processing_panel(processing_tab)
 
 	var upgrades_tab_scroll := ScrollContainer.new()
 	upgrades_tab_scroll.name = "Upgrades"
@@ -641,6 +681,142 @@ func _build_craftables_panel(parent: VBoxContainer) -> void:
 		}
 
 
+func _build_processing_panel(parent: VBoxContainer) -> void:
+	if recipe_order.is_empty():
+		return
+
+	var processing_panel := PanelContainer.new()
+	processing_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(processing_panel)
+
+	var processing_margin := MarginContainer.new()
+	processing_margin.add_theme_constant_override("margin_left", 10)
+	processing_margin.add_theme_constant_override("margin_top", 8)
+	processing_margin.add_theme_constant_override("margin_right", 10)
+	processing_margin.add_theme_constant_override("margin_bottom", 8)
+	processing_panel.add_child(processing_margin)
+
+	var processing_box := VBoxContainer.new()
+	processing_box.add_theme_constant_override("separation", 6)
+	processing_margin.add_child(processing_box)
+
+	var processing_title := Label.new()
+	processing_title.text = "Stations"
+	processing_title.add_theme_font_size_override("font_size", 18)
+	processing_box.add_child(processing_title)
+
+	var summary_item_ids := _get_processing_summary_item_ids()
+	if not summary_item_ids.is_empty():
+		var items_panel := VBoxContainer.new()
+		items_panel.add_theme_constant_override("separation", 3)
+		processing_box.add_child(items_panel)
+
+		var items_title := Label.new()
+		items_title.text = "Items"
+		items_title.add_theme_font_size_override("font_size", 15)
+		items_panel.add_child(items_title)
+
+		for item_id in summary_item_ids:
+			var item_label := Label.new()
+			items_panel.add_child(item_label)
+			item_labels[item_id] = item_label
+
+	var recipes_by_station := {}
+	for recipe_id in recipe_order:
+		var station_id := _get_recipe_station_id(recipe_id)
+		if not recipes_by_station.has(station_id):
+			recipes_by_station[station_id] = []
+		recipes_by_station[station_id].append(recipe_id)
+
+	for craftable_id in craftable_order:
+		if not recipes_by_station.has(craftable_id):
+			continue
+
+		processing_station_expanded[craftable_id] = true
+
+		var station_panel := PanelContainer.new()
+		station_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		processing_box.add_child(station_panel)
+
+		var station_margin := MarginContainer.new()
+		station_margin.add_theme_constant_override("margin_left", 8)
+		station_margin.add_theme_constant_override("margin_top", 8)
+		station_margin.add_theme_constant_override("margin_right", 8)
+		station_margin.add_theme_constant_override("margin_bottom", 8)
+		station_panel.add_child(station_margin)
+
+		var station_box := VBoxContainer.new()
+		station_box.add_theme_constant_override("separation", 5)
+		station_margin.add_child(station_box)
+
+		var station_header := HBoxContainer.new()
+		station_header.add_theme_constant_override("separation", 8)
+		station_box.add_child(station_header)
+
+		var station_title := Label.new()
+		station_title.text = _get_craftable_name(craftable_id)
+		station_title.add_theme_font_size_override("font_size", 16)
+		station_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		station_header.add_child(station_title)
+
+		var toggle_button := Button.new()
+		toggle_button.custom_minimum_size = Vector2(90, 0)
+		toggle_button.pressed.connect(_toggle_processing_station.bind(craftable_id))
+		station_header.add_child(toggle_button)
+
+		var station_status := Label.new()
+		station_box.add_child(station_status)
+
+		var recipes_box := VBoxContainer.new()
+		recipes_box.add_theme_constant_override("separation", 4)
+		station_box.add_child(recipes_box)
+
+		for recipe_id in recipes_by_station[craftable_id]:
+			var row_panel := PanelContainer.new()
+			row_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row_panel.custom_minimum_size = Vector2(0, 44)
+			recipes_box.add_child(row_panel)
+
+			var row_margin := MarginContainer.new()
+			row_margin.add_theme_constant_override("margin_left", 8)
+			row_margin.add_theme_constant_override("margin_top", 6)
+			row_margin.add_theme_constant_override("margin_right", 8)
+			row_margin.add_theme_constant_override("margin_bottom", 6)
+			row_panel.add_child(row_margin)
+
+			var row_box := HBoxContainer.new()
+			row_box.add_theme_constant_override("separation", 8)
+			row_margin.add_child(row_box)
+
+			var name_label := Label.new()
+			name_label.text = _get_recipe_name(recipe_id)
+			name_label.custom_minimum_size = Vector2(150, 0)
+			name_label.add_theme_font_size_override("font_size", 15)
+			row_box.add_child(name_label)
+
+			var stats_label := _create_resource_navigation_rich_label(13)
+			stats_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			stats_label.fit_content = false
+			stats_label.bbcode_enabled = true
+			row_box.add_child(stats_label)
+
+			var button := Button.new()
+			button.custom_minimum_size = Vector2(122, 0)
+			button.pressed.connect(_queue_recipe.bind(recipe_id))
+			row_box.add_child(button)
+
+			recipe_cards[recipe_id] = {
+				"stats_label": stats_label,
+				"button": button,
+			}
+
+		processing_station_cards[craftable_id] = {
+			"status_label": station_status,
+			"toggle_button": toggle_button,
+			"recipes_box": recipes_box,
+		}
+
+
 func _build_upgrades_panel(parent: VBoxContainer) -> void:
 	var upgrades_panel := PanelContainer.new()
 	upgrades_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -718,10 +894,33 @@ func _craft_tool(tool_id: String) -> void:
 
 
 func _craft_item(craftable_id: String) -> void:
+	if _get_crafted_item_count(craftable_id) > 0:
+		_upgrade_craftable(craftable_id)
+		return
+
 	if not _can_queue_craftable_action(craftable_id):
 		return
 
 	_queue_action(_make_craft_item_action(craftable_id))
+
+
+func _upgrade_craftable(craftable_id: String) -> void:
+	if not _can_queue_craftable_upgrade_action(craftable_id):
+		return
+
+	_queue_action(_make_upgrade_craftable_action(craftable_id))
+
+
+func _queue_recipe(recipe_id: String) -> void:
+	if not _can_queue_recipe_action(recipe_id):
+		return
+
+	_queue_action_count(_make_process_recipe_action(recipe_id), _get_requested_queue_amount())
+
+
+func _toggle_processing_station(craftable_id: String) -> void:
+	processing_station_expanded[craftable_id] = not bool(processing_station_expanded.get(craftable_id, true))
+	_refresh_recipe_panel()
 
 
 func _queue_action(action: Dictionary) -> void:
@@ -787,6 +986,7 @@ func _start_next_action() -> void:
 		inventory = live_state["inventory"]
 		tools = live_state["tools"]
 		crafted_items = live_state["crafted_items"]
+		craftable_upgrade_levels = live_state["craftable_upgrade_levels"]
 		current_action = {
 			"type": _get_action_type(next_action),
 			"id": _get_action_id(next_action),
@@ -820,6 +1020,16 @@ func _complete_current_action() -> void:
 			var craftable_id := _get_action_id(action)
 			crafted_items[craftable_id] += 1
 			_gain_skill_exp("crafting", _get_craftable_craft_xp(craftable_id))
+		"upgrade_craftable":
+			var upgrade_craftable_id := _get_action_id(action)
+			craftable_upgrade_levels[upgrade_craftable_id] += 1
+			_gain_skill_exp("crafting", _get_craftable_craft_xp(upgrade_craftable_id))
+		"process_recipe":
+			var recipe_id := _get_action_id(action)
+			var recipe_outputs := _get_recipe_outputs(recipe_id)
+			for output_id in recipe_outputs.keys():
+				inventory[output_id] += int(recipe_outputs[output_id])
+			_gain_skill_exp("crafting", _get_recipe_craft_xp(recipe_id))
 
 	current_action.clear()
 	_refresh_ui()
@@ -853,6 +1063,8 @@ func _refresh_ui() -> void:
 	clear_queue_button.disabled = action_queue.is_empty()
 	_refresh_tool_panel()
 	_refresh_craftable_panel()
+	_refresh_recipe_panel()
+	_refresh_item_summary()
 
 	for resource_id in gatherable_order:
 		_refresh_resource_card(resource_id)
@@ -925,6 +1137,43 @@ func _refresh_craftable_panel() -> void:
 		_refresh_craftable_card(craftable_id)
 
 
+func _refresh_recipe_panel() -> void:
+	for craftable_id in craftable_order:
+		if not processing_station_cards.has(craftable_id):
+			continue
+
+		var station_card: Dictionary = processing_station_cards[craftable_id]
+		var station_status: Label = station_card["status_label"]
+		var toggle_button: Button = station_card["toggle_button"]
+		var recipes_box: VBoxContainer = station_card["recipes_box"]
+		var built_count := _get_crafted_item_count(craftable_id)
+		var station_level := _get_processing_station_level(craftable_id)
+		var is_expanded := bool(processing_station_expanded.get(craftable_id, true))
+
+		toggle_button.text = "Collapse" if is_expanded else "Expand"
+		recipes_box.visible = is_expanded
+		if built_count <= 0:
+			station_status.text = "Build %s to unlock its recipes." % _get_craftable_name(craftable_id)
+		else:
+			station_status.text = "Lv %d | %.0f%% faster station crafting" % [
+				station_level,
+				(1.0 - _get_craftable_speed_multiplier(craftable_id)) * 100.0,
+			]
+
+	for recipe_id in recipe_order:
+		_refresh_recipe_card(recipe_id)
+
+
+func _refresh_item_summary() -> void:
+	for item_id in _get_processing_summary_item_ids():
+		if not item_labels.has(item_id):
+			continue
+
+		var item_label: Label = item_labels[item_id]
+		item_label.text = "%s: %d" % [_get_resource_name(item_id), int(inventory.get(item_id, 0))]
+		item_label.tooltip_text = _get_item_description(item_id)
+
+
 func _refresh_tool_card(tool_id: String) -> void:
 	var card: Dictionary = tool_cards[tool_id]
 	var status_label: Label = card["status_label"]
@@ -975,33 +1224,104 @@ func _refresh_craftable_card(craftable_id: String) -> void:
 	var detail_label: RichTextLabel = card["detail_label"]
 	var button: Button = card["button"]
 	var owned_count := _get_crafted_item_count(craftable_id)
+	var station_level := _get_processing_station_level(craftable_id)
 	var is_crafting_now := not current_action.is_empty() and _get_action_type(current_action) == "craft_item" and _get_action_id(current_action) == craftable_id
+	var is_upgrading_now := not current_action.is_empty() and _get_action_type(current_action) == "upgrade_craftable" and _get_action_id(current_action) == craftable_id
 	var block_reason := _get_craftable_queue_block_reason(craftable_id)
+	var upgrade_block_reason := _get_craftable_upgrade_queue_block_reason(craftable_id)
+	var can_upgrade := owned_count > 0
 
 	if is_crafting_now:
 		status_label.text = "%s: Building (%s left)" % [
 			_get_craftable_name(craftable_id),
 			_format_seconds(_get_current_action_time_left()),
 		]
-	else:
-		status_label.text = "%s: Built %d" % [
+	elif is_upgrading_now:
+		status_label.text = "%s: Upgrading to Lv %d (%s left)" % [
 			_get_craftable_name(craftable_id),
-			owned_count,
+			station_level + 1,
+			_format_seconds(_get_current_action_time_left()),
 		]
+	else:
+		if owned_count > 0:
+			status_label.text = "%s: Built | Station Lv %d | %.0f%% faster" % [
+				_get_craftable_name(craftable_id),
+				station_level,
+				(1.0 - _get_craftable_speed_multiplier(craftable_id)) * 100.0,
+			]
+		else:
+			status_label.text = "%s: Not built" % _get_craftable_name(craftable_id)
 
-	detail_label.text = _format_recipe_detail_rich_text(
-		_get_craftable_craft_time(craftable_id),
-		_get_craftable_craft_xp(craftable_id),
-		_get_craftable_craft_cost(craftable_id),
-		_get_craftable_use_text(craftable_id)
-	)
+	if owned_count > 0:
+		detail_label.text = _format_recipe_detail_rich_text(
+			_get_craftable_craft_time(craftable_id),
+			_get_craftable_craft_xp(craftable_id),
+			_get_craftable_upgrade_cost(craftable_id),
+			"Next upgrade: 15%% faster station recipes. %s" % _get_craftable_use_text(craftable_id)
+		)
+	else:
+		detail_label.text = _format_recipe_detail_rich_text(
+			_get_craftable_craft_time(craftable_id),
+			_get_craftable_craft_xp(craftable_id),
+			_get_craftable_craft_cost(craftable_id),
+			_get_craftable_use_text(craftable_id)
+		)
 
 	if is_crafting_now:
 		button.text = "Building..."
+	elif is_upgrading_now:
+		button.text = "Upgrading..."
+	elif can_upgrade:
+		button.text = "Upgrade %s" % _get_craftable_name(craftable_id)
 	else:
-		button.text = "Queue %s" % _get_craftable_name(craftable_id)
+		button.text = "Build %s" % _get_craftable_name(craftable_id)
 
-	button.disabled = is_crafting_now or block_reason != ""
+	button.disabled = is_crafting_now or is_upgrading_now or (upgrade_block_reason != "" if can_upgrade else block_reason != "")
+
+
+func _refresh_recipe_card(recipe_id: String) -> void:
+	var card: Dictionary = recipe_cards.get(recipe_id, {})
+	if card.is_empty():
+		return
+
+	var stats_label: RichTextLabel = card["stats_label"]
+	var button: Button = card["button"]
+	var station_id := _get_recipe_station_id(recipe_id)
+	var station_ready := _get_crafted_item_count(station_id) > 0
+	var is_processing_now := not current_action.is_empty() and _get_action_type(current_action) == "process_recipe" and _get_action_id(current_action) == recipe_id
+	var block_reason := _get_recipe_queue_block_reason(recipe_id)
+	var display_duration := _get_recipe_craft_time(recipe_id)
+
+	if is_processing_now:
+		display_duration = maxf(0.001, float(current_action["duration"]))
+
+	var summary_text := ""
+	if not station_ready:
+		summary_text = ""
+	else:
+		summary_text = "%.2fs | +%d XP | Cost: %s | Output: %s" % [
+			display_duration,
+			_get_recipe_craft_xp(recipe_id),
+			_format_cost_markup(_get_recipe_craft_cost(recipe_id)),
+			_format_cost(_get_recipe_outputs(recipe_id)),
+		]
+		if is_processing_now:
+			summary_text += " | %s left" % _format_seconds(_get_current_action_time_left())
+
+	stats_label.text = summary_text
+
+	if is_processing_now:
+		button.text = "Processing..."
+	elif block_reason != "":
+		button.text = block_reason if block_reason.length() <= 18 else "Blocked"
+	else:
+		button.text = "Queue"
+
+	button.disabled = is_processing_now or block_reason != ""
+	if not button.disabled:
+		button.tooltip_text = _get_queue_button_tooltip()
+	else:
+		button.tooltip_text = ""
 
 
 func _refresh_upgrade_card(upgrade_id: String) -> void:
@@ -1034,6 +1354,14 @@ func _can_queue_craftable_action(craftable_id: String) -> bool:
 	return _get_craftable_queue_block_reason(craftable_id) == ""
 
 
+func _can_queue_craftable_upgrade_action(craftable_id: String) -> bool:
+	return _get_craftable_upgrade_queue_block_reason(craftable_id) == ""
+
+
+func _can_queue_recipe_action(recipe_id: String) -> bool:
+	return _get_recipe_queue_block_reason(recipe_id) == ""
+
+
 func _get_gather_queue_block_reason(resource_id: String) -> String:
 	if action_queue.size() >= _get_queue_capacity():
 		return "Queue full"
@@ -1056,6 +1384,22 @@ func _get_craftable_queue_block_reason(craftable_id: String) -> String:
 
 	var pipeline_state := _build_pipeline_end_state()
 	return _get_action_block_reason_in_state(_make_craft_item_action(craftable_id), pipeline_state)
+
+
+func _get_craftable_upgrade_queue_block_reason(craftable_id: String) -> String:
+	if action_queue.size() >= _get_queue_capacity():
+		return "Queue full"
+
+	var pipeline_state := _build_pipeline_end_state()
+	return _get_action_block_reason_in_state(_make_upgrade_craftable_action(craftable_id), pipeline_state)
+
+
+func _get_recipe_queue_block_reason(recipe_id: String) -> String:
+	if action_queue.size() >= _get_queue_capacity():
+		return "Queue full"
+
+	var pipeline_state := _build_pipeline_end_state()
+	return _get_action_block_reason_in_state(_make_process_recipe_action(recipe_id), pipeline_state)
 
 
 func _refresh_runtime_status() -> void:
@@ -1106,6 +1450,27 @@ func _refresh_queue_button_hover_previews() -> void:
 			queue_button.text = "Queue +5"
 		else:
 			queue_button.text = base_text
+
+	for recipe_id in recipe_order:
+		if not recipe_cards.has(recipe_id):
+			continue
+
+		var recipe_card: Dictionary = recipe_cards[recipe_id]
+		var recipe_button: Button = recipe_card["button"]
+		if recipe_button.disabled:
+			continue
+
+		var recipe_base_text := "Queue"
+		if not recipe_button.is_hovered():
+			recipe_button.text = recipe_base_text
+			continue
+
+		if Input.is_key_pressed(KEY_CTRL):
+			recipe_button.text = "Queue +%d" % _get_free_queue_slots()
+		elif Input.is_key_pressed(KEY_SHIFT):
+			recipe_button.text = "Queue +5"
+		else:
+			recipe_button.text = recipe_base_text
 
 
 func _get_queue_button_tooltip() -> String:
@@ -1158,6 +1523,10 @@ func _get_action_duration_for_state(action: Dictionary, state: Dictionary) -> fl
 			return _get_tool_craft_time(action_id)
 		"craft_item":
 			return _get_craftable_craft_time(action_id)
+		"upgrade_craftable":
+			return _get_craftable_craft_time(action_id)
+		"process_recipe":
+			return _get_recipe_craft_time_for_state(action_id, state)
 		_:
 			return 0.0
 
@@ -1167,6 +1536,14 @@ func _get_gather_action_duration_for_state(resource_id: String, level_value: int
 	var level_multiplier := pow(level_speed_multiplier, maxi(level_value - 1, 0))
 	var upgrade_multiplier := pow(speed_upgrade_multiplier, tooling_level)
 	var duration := float(gatherable["base_time"]) * level_multiplier * upgrade_multiplier
+	return maxf(min_gather_time, duration)
+
+
+func _get_recipe_craft_time_for_state(recipe_id: String, state: Dictionary) -> float:
+	var recipe: Dictionary = recipes[recipe_id]
+	var station_id := _get_recipe_station_id(recipe_id)
+	var upgrade_level := int(state["craftable_upgrade_levels"].get(station_id, 0))
+	var duration := float(recipe.get("craft_time", 0.0)) * pow(_get_craftable_station_speed_multiplier(station_id), upgrade_level)
 	return maxf(min_gather_time, duration)
 
 
@@ -1295,6 +1672,9 @@ func _get_next_unlock_text_for_skill(skill_id: String) -> String:
 
 
 func _get_capacity(resource_id: String) -> int:
+	if not gatherables.has(resource_id):
+		return 999999
+
 	var gatherable: Dictionary = gatherables[resource_id]
 	return int(gatherable["base_capacity"]) + int(upgrade_levels["bag_space"]) * bag_capacity_per_upgrade
 
@@ -1304,6 +1684,9 @@ func _get_queue_capacity() -> int:
 
 
 func _get_resource_xp(resource_id: String) -> int:
+	if not gatherables.has(resource_id):
+		return 0
+
 	var gatherable: Dictionary = gatherables[resource_id]
 	return int(gatherable["xp"])
 
@@ -1314,13 +1697,50 @@ func _get_unlock_level(resource_id: String) -> int:
 
 
 func _get_resource_name(resource_id: String) -> String:
+	if items.has(resource_id):
+		var item: Dictionary = items[resource_id]
+		return String(item["name"])
+
 	var gatherable: Dictionary = gatherables[resource_id]
 	return String(gatherable["name"])
 
 
+func _get_item_description(item_id: String) -> String:
+	if not items.has(item_id):
+		return ""
+
+	var item: Dictionary = items[item_id]
+	return String(item.get("description", ""))
+
+
 func _get_resource_skill_id(resource_id: String) -> String:
+	if not gatherables.has(resource_id):
+		return "crafting"
+
 	var gatherable: Dictionary = gatherables[resource_id]
 	return String(gatherable.get("skill", "gathering"))
+
+
+func _get_inventory_item_order() -> Array:
+	var inventory_item_order: Array = []
+	for item_id in item_order:
+		if not inventory_item_order.has(item_id):
+			inventory_item_order.append(item_id)
+	for resource_id in gatherable_order:
+		if not inventory_item_order.has(resource_id):
+			inventory_item_order.append(resource_id)
+
+	return inventory_item_order
+
+
+func _get_processing_summary_item_ids() -> Array:
+	var summary_item_ids: Array = []
+	for item_id in item_order:
+		if gatherables.has(item_id):
+			continue
+		summary_item_ids.append(item_id)
+
+	return summary_item_ids
 
 
 func _get_required_tool_id(resource_id: String) -> String:
@@ -1445,6 +1865,79 @@ func _get_crafted_item_count(craftable_id: String) -> int:
 	return int(crafted_items[craftable_id])
 
 
+func _get_craftable_max_count(craftable_id: String) -> int:
+	var craftable: Dictionary = craftables[craftable_id]
+	return int(craftable.get("max_count", 999999))
+
+
+func _get_craftable_upgrade_level(craftable_id: String) -> int:
+	return int(craftable_upgrade_levels.get(craftable_id, 0))
+
+
+func _get_processing_station_level(craftable_id: String) -> int:
+	if _get_crafted_item_count(craftable_id) <= 0:
+		return 0
+
+	return _get_craftable_upgrade_level(craftable_id) + 1
+
+
+func _get_craftable_upgrade_cost(craftable_id: String, from_level: int = -1) -> Dictionary:
+	var effective_level := from_level
+	if effective_level < 0:
+		effective_level = _get_craftable_upgrade_level(craftable_id)
+
+	var multiplier := pow(_get_craftable_upgrade_cost_multiplier(craftable_id), effective_level)
+	var base_cost := _get_craftable_craft_cost(craftable_id)
+	var scaled_cost := {}
+	for resource_id in base_cost.keys():
+		scaled_cost[resource_id] = int(ceil(float(base_cost[resource_id]) * multiplier))
+
+	return _build_cost(scaled_cost)
+
+
+func _get_craftable_upgrade_cost_multiplier(craftable_id: String) -> float:
+	var craftable: Dictionary = craftables[craftable_id]
+	return float(craftable.get("upgrade_cost_multiplier", 1.3))
+
+
+func _get_craftable_station_speed_multiplier(craftable_id: String) -> float:
+	var craftable: Dictionary = craftables[craftable_id]
+	return float(craftable.get("station_speed_multiplier", 0.85))
+
+
+func _get_craftable_speed_multiplier(craftable_id: String) -> float:
+	return pow(_get_craftable_station_speed_multiplier(craftable_id), _get_craftable_upgrade_level(craftable_id))
+
+
+func _get_recipe_name(recipe_id: String) -> String:
+	var recipe: Dictionary = recipes[recipe_id]
+	return String(recipe["name"])
+
+
+func _get_recipe_station_id(recipe_id: String) -> String:
+	var recipe: Dictionary = recipes[recipe_id]
+	return String(recipe.get("station", ""))
+
+
+func _get_recipe_craft_cost(recipe_id: String) -> Dictionary:
+	var recipe: Dictionary = recipes[recipe_id]
+	return _build_cost(Dictionary(recipe.get("craft_cost", {})))
+
+
+func _get_recipe_outputs(recipe_id: String) -> Dictionary:
+	var recipe: Dictionary = recipes[recipe_id]
+	return _build_cost(Dictionary(recipe.get("outputs", {})))
+
+
+func _get_recipe_craft_time(recipe_id: String) -> float:
+	return _get_action_duration(_make_process_recipe_action(recipe_id))
+
+
+func _get_recipe_craft_xp(recipe_id: String) -> int:
+	var recipe: Dictionary = recipes[recipe_id]
+	return int(recipe.get("craft_xp", 0))
+
+
 func _build_pipeline_end_state() -> Dictionary:
 	var state := _create_simulation_state()
 
@@ -1462,6 +1955,7 @@ func _create_simulation_state() -> Dictionary:
 		"inventory": inventory.duplicate(true),
 		"tools": tools.duplicate(true),
 		"crafted_items": crafted_items.duplicate(true),
+		"craftable_upgrade_levels": craftable_upgrade_levels.duplicate(true),
 		"skills": skill_states.duplicate(true),
 	}
 
@@ -1504,8 +1998,23 @@ func _get_action_block_reason_in_state(action: Dictionary, state: Dictionary) ->
 				return "Need %s" % _format_cost(_get_tool_craft_cost(action_id))
 			return ""
 		"craft_item":
+			if int(state["crafted_items"][action_id]) >= _get_craftable_max_count(action_id):
+				return "%s built" % _get_craftable_name(action_id)
 			if not _can_afford_inventory(state["inventory"], _get_craftable_craft_cost(action_id)):
 				return "Need %s" % _format_cost(_get_craftable_craft_cost(action_id))
+			return ""
+		"upgrade_craftable":
+			if int(state["crafted_items"][action_id]) <= 0:
+				return "Build %s first" % _get_craftable_name(action_id)
+			if not _can_afford_inventory(state["inventory"], _get_craftable_upgrade_cost(action_id, int(state["craftable_upgrade_levels"][action_id]))):
+				return "Need %s" % _format_cost(_get_craftable_upgrade_cost(action_id, int(state["craftable_upgrade_levels"][action_id])))
+			return ""
+		"process_recipe":
+			var station_id := _get_recipe_station_id(action_id)
+			if int(state["crafted_items"].get(station_id, 0)) <= 0:
+				return "Need %s" % _get_craftable_name(station_id)
+			if not _can_afford_inventory(state["inventory"], _get_recipe_craft_cost(action_id)):
+				return "Need %s" % _format_cost(_get_recipe_craft_cost(action_id))
 			return ""
 		_:
 			return "Unknown action"
@@ -1530,6 +2039,14 @@ func _apply_action_start_to_state(state: Dictionary, action: Dictionary) -> void
 			var item_craft_cost := _get_craftable_craft_cost(action_id)
 			for resource_id in item_craft_cost.keys():
 				state["inventory"][resource_id] -= int(item_craft_cost[resource_id])
+		"upgrade_craftable":
+			var upgrade_cost := _get_craftable_upgrade_cost(action_id, int(state["craftable_upgrade_levels"][action_id]))
+			for resource_id in upgrade_cost.keys():
+				state["inventory"][resource_id] -= int(upgrade_cost[resource_id])
+		"process_recipe":
+			var recipe_cost := _get_recipe_craft_cost(action_id)
+			for resource_id in recipe_cost.keys():
+				state["inventory"][resource_id] -= int(recipe_cost[resource_id])
 
 
 func _apply_action_completion_to_state(state: Dictionary, action: Dictionary) -> void:
@@ -1568,6 +2085,28 @@ func _apply_action_completion_to_state(state: Dictionary, action: Dictionary) ->
 				_get_craftable_craft_xp(action_id)
 			)
 			state["skills"]["crafting"] = item_craft_result
+		"upgrade_craftable":
+			var upgrade_skill_state: Dictionary = state["skills"]["crafting"]
+			state["craftable_upgrade_levels"][action_id] += 1
+			var upgrade_result := _simulate_exp_gain(
+				int(upgrade_skill_state["level"]),
+				int(upgrade_skill_state["exp"]),
+				int(upgrade_skill_state["exp_to_next"]),
+				_get_craftable_craft_xp(action_id)
+			)
+			state["skills"]["crafting"] = upgrade_result
+		"process_recipe":
+			var recipe_skill_state: Dictionary = state["skills"]["crafting"]
+			var recipe_outputs := _get_recipe_outputs(action_id)
+			for output_id in recipe_outputs.keys():
+				state["inventory"][output_id] += int(recipe_outputs[output_id])
+			var recipe_result := _simulate_exp_gain(
+				int(recipe_skill_state["level"]),
+				int(recipe_skill_state["exp"]),
+				int(recipe_skill_state["exp_to_next"]),
+				_get_recipe_craft_xp(action_id)
+			)
+			state["skills"]["crafting"] = recipe_result
 
 
 func _get_action_queue_label(action: Dictionary) -> String:
@@ -1578,6 +2117,10 @@ func _get_action_queue_label(action: Dictionary) -> String:
 			return "Craft %s" % _get_tool_name(_get_action_id(action))
 		"craft_item":
 			return "Build %s" % _get_craftable_name(_get_action_id(action))
+		"upgrade_craftable":
+			return "Upgrade %s" % _get_craftable_name(_get_action_id(action))
+		"process_recipe":
+			return "%s: %s" % [_get_craftable_name(_get_recipe_station_id(_get_action_id(action))), _get_recipe_name(_get_action_id(action))]
 		_:
 			return "Unknown"
 
@@ -1590,6 +2133,10 @@ func _get_action_progress_label(action: Dictionary) -> String:
 			return "Crafting %s" % _get_tool_name(_get_action_id(action))
 		"craft_item":
 			return "Building %s" % _get_craftable_name(_get_action_id(action))
+		"upgrade_craftable":
+			return "Upgrading %s" % _get_craftable_name(_get_action_id(action))
+		"process_recipe":
+			return "Processing %s" % _get_recipe_name(_get_action_id(action))
 		_:
 			return "Working"
 
@@ -1612,6 +2159,20 @@ func _make_craft_item_action(craftable_id: String) -> Dictionary:
 	return {
 		"type": "craft_item",
 		"id": craftable_id,
+	}
+
+
+func _make_upgrade_craftable_action(craftable_id: String) -> Dictionary:
+	return {
+		"type": "upgrade_craftable",
+		"id": craftable_id,
+	}
+
+
+func _make_process_recipe_action(recipe_id: String) -> Dictionary:
+	return {
+		"type": "process_recipe",
+		"id": recipe_id,
 	}
 
 
@@ -1697,7 +2258,7 @@ func _get_upgrade_cost(upgrade_id: String) -> Dictionary:
 
 func _build_cost(raw_cost: Dictionary) -> Dictionary:
 	var result := {}
-	for resource_id in gatherable_order:
+	for resource_id in _get_inventory_item_order():
 		if not raw_cost.has(resource_id):
 			continue
 
@@ -1772,7 +2333,7 @@ func _create_resource_navigation_rich_label(font_size: int) -> RichTextLabel:
 
 func _format_cost(cost: Dictionary) -> String:
 	var parts: Array[String] = []
-	for resource_id in gatherable_order:
+	for resource_id in _get_inventory_item_order():
 		if not cost.has(resource_id):
 			continue
 
@@ -1811,7 +2372,7 @@ func _format_cost_rich_text(cost: Dictionary) -> String:
 
 func _format_cost_markup(cost: Dictionary) -> String:
 	var parts: Array[String] = []
-	for resource_id in gatherable_order:
+	for resource_id in _get_inventory_item_order():
 		if not cost.has(resource_id):
 			continue
 

@@ -1,0 +1,28 @@
+[
+  {
+	"id": "charcoal_from_logs",
+	"name": "Charcoal from Logs",
+	"station": "firepit",
+	"craft_time": 20.0,
+	"craft_xp": 6,
+	"craft_cost": {
+	  "logs": 1
+	},
+	"outputs": {
+	  "coal": 2
+	}
+  },
+  {
+	"id": "charcoal_from_sticks",
+	"name": "Charcoal from Sticks",
+	"station": "firepit",
+	"craft_time": 10.0,
+	"craft_xp": 3,
+	"craft_cost": {
+	  "stick": 1
+	},
+	"outputs": {
+	  "coal": 1
+	}
+  }
+]

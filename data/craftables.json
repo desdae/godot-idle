@@ -4,11 +4,14 @@
 	"name": "Firepit",
 	"craft_time": 12.0,
 	"craft_xp": 8,
+	"max_count": 1,
+	"upgrade_cost_multiplier": 1.3,
+	"station_speed_multiplier": 0.85,
 	"craft_cost": {
 	  "stone": 5,
 	  "logs": 5,
 	  "grass": 5
 	},
-	"use_text": "A sturdy campsite fixture built from Logs and Grass."
+	"use_text": "A sturdy campsite fixture built from Logs and Grass. Build one, then upgrade it to speed up all Firepit recipes."
   }
 ]
