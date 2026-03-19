@@ -1,0 +1,52 @@
+[
+  {
+	"id": "stick",
+	"name": "Stick",
+	"base_time": 1.6,
+	"xp": 1,
+	"base_capacity": 12,
+	"unlock_level": 1
+  },
+  {
+	"id": "stone",
+	"name": "Stone",
+	"base_time": 2.0,
+	"xp": 1,
+	"base_capacity": 10,
+	"unlock_level": 1
+  },
+  {
+	"id": "berries",
+	"name": "Berries",
+	"base_time": 2.5,
+	"xp": 2,
+	"base_capacity": 14,
+	"unlock_level": 2
+  },
+  {
+	"id": "logs",
+	"name": "Logs",
+	"base_time": 3.3,
+	"xp": 3,
+	"base_capacity": 8,
+	"unlock_level": 3,
+	"required_tool": "stone_axe",
+	"tool_durability_cost": 2
+  },
+  {
+	"id": "flint",
+	"name": "Flint",
+	"base_time": 4.4,
+	"xp": 5,
+	"base_capacity": 6,
+	"unlock_level": 5
+  },
+  {
+	"id": "ore",
+	"name": "Ore",
+	"base_time": 5.8,
+	"xp": 7,
+	"base_capacity": 5,
+	"unlock_level": 7
+  }
+]

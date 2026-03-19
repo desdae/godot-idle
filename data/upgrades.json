@@ -1,0 +1,41 @@
+[
+  {
+	"id": "bag_space",
+	"name": "Bag Upgrade",
+	"button_text": "Upgrade Bags",
+	"cost_curve": {
+	  "stick": { "base": 8, "step": 6, "start_level": 1 },
+	  "stone": { "base": 6, "step": 7, "start_level": 1 },
+	  "berries": { "base": 4, "step": 4, "start_level": 2 },
+	  "logs": { "base": 3, "step": 3, "start_level": 3 },
+	  "flint": { "base": 2, "step": 2, "start_level": 4 },
+	  "ore": { "base": 2, "step": 2, "start_level": 5 }
+	}
+  },
+  {
+	"id": "tooling",
+	"name": "Gather Speed",
+	"button_text": "Sharpen Tools",
+	"cost_curve": {
+	  "stick": { "base": 10, "step": 6, "start_level": 1 },
+	  "stone": { "base": 10, "step": 6, "start_level": 1 },
+	  "berries": { "base": 2, "step": 4, "start_level": 1 },
+	  "logs": { "base": 1, "step": 3, "start_level": 1 },
+	  "flint": { "base": 3, "step": 3, "start_level": 4 },
+	  "ore": { "base": 2, "step": 2, "start_level": 5 }
+	}
+  },
+  {
+	"id": "queue_slots",
+	"name": "Queue Size",
+	"button_text": "Add Queue Slots",
+	"cost_curve": {
+	  "stick": { "base": 7, "step": 5, "start_level": 1 },
+	  "stone": { "base": 5, "step": 4, "start_level": 1 },
+	  "berries": { "base": 5, "step": 5, "start_level": 3 },
+	  "logs": { "base": 4, "step": 4, "start_level": 4 },
+	  "flint": { "base": 3, "step": 3, "start_level": 5 },
+	  "ore": { "base": 2, "step": 2, "start_level": 6 }
+	}
+  }
+]

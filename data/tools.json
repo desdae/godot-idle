@@ -1,0 +1,14 @@
+[
+  {
+	"id": "stone_axe",
+	"name": "Stone Axe",
+	"craft_time": 10.0,
+	"craft_xp": 5,
+	"max_durability": 100,
+	"craft_cost": {
+	  "stick": 1,
+	  "stone": 2
+	},
+	"use_text": "Needed for Logs. Each tree costs 2 durability."
+  }
+]
