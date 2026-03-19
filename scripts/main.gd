@@ -573,9 +573,8 @@ func _build_tools_panel(parent: VBoxContainer) -> void:
 		status_label.add_theme_font_size_override("font_size", 14)
 		tool_row.add_child(status_label)
 
-		var detail_label := Label.new()
+		var detail_label := _create_resource_navigation_rich_label(13)
 		detail_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		detail_label.add_theme_font_size_override("font_size", 13)
 		tool_row.add_child(detail_label)
 
 		var button := Button.new()
@@ -627,9 +626,8 @@ func _build_craftables_panel(parent: VBoxContainer) -> void:
 		status_label.add_theme_font_size_override("font_size", 14)
 		craftable_row.add_child(status_label)
 
-		var detail_label := Label.new()
+		var detail_label := _create_resource_navigation_rich_label(13)
 		detail_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		detail_label.add_theme_font_size_override("font_size", 13)
 		craftable_row.add_child(detail_label)
 
 		var button := Button.new()
@@ -688,8 +686,7 @@ func _build_upgrades_panel(parent: VBoxContainer) -> void:
 		detail_label.add_theme_font_size_override("font_size", 13)
 		info_box.add_child(detail_label)
 
-		var cost_label := Label.new()
-		cost_label.add_theme_font_size_override("font_size", 13)
+		var cost_label := _create_resource_navigation_rich_label(13)
 		info_box.add_child(cost_label)
 
 		var button := Button.new()
@@ -931,7 +928,7 @@ func _refresh_craftable_panel() -> void:
 func _refresh_tool_card(tool_id: String) -> void:
 	var card: Dictionary = tool_cards[tool_id]
 	var status_label: Label = card["status_label"]
-	var detail_label: Label = card["detail_label"]
+	var detail_label: RichTextLabel = card["detail_label"]
 	var button: Button = card["button"]
 	var durability := _get_tool_durability(tool_id)
 	var max_durability := _get_tool_max_durability(tool_id)
@@ -953,12 +950,12 @@ func _refresh_tool_card(tool_id: String) -> void:
 	else:
 		status_label.text = "%s: Not crafted" % _get_tool_name(tool_id)
 
-	detail_label.text = "%.1fs craft | +%d XP | Cost: %s | %s" % [
+	detail_label.text = _format_recipe_detail_rich_text(
 		_get_tool_craft_time(tool_id),
 		_get_tool_craft_xp(tool_id),
-		_format_cost(_get_tool_craft_cost(tool_id)),
-		_get_tool_use_text(tool_id),
-	]
+		_get_tool_craft_cost(tool_id),
+		_get_tool_use_text(tool_id)
+	)
 
 	if is_crafting_now:
 		button.text = "Crafting..."
@@ -975,7 +972,7 @@ func _refresh_tool_card(tool_id: String) -> void:
 func _refresh_craftable_card(craftable_id: String) -> void:
 	var card: Dictionary = craftable_cards[craftable_id]
 	var status_label: Label = card["status_label"]
-	var detail_label: Label = card["detail_label"]
+	var detail_label: RichTextLabel = card["detail_label"]
 	var button: Button = card["button"]
 	var owned_count := _get_crafted_item_count(craftable_id)
 	var is_crafting_now := not current_action.is_empty() and _get_action_type(current_action) == "craft_item" and _get_action_id(current_action) == craftable_id
@@ -992,12 +989,12 @@ func _refresh_craftable_card(craftable_id: String) -> void:
 			owned_count,
 		]
 
-	detail_label.text = "%.1fs craft | +%d XP | Cost: %s | %s" % [
+	detail_label.text = _format_recipe_detail_rich_text(
 		_get_craftable_craft_time(craftable_id),
 		_get_craftable_craft_xp(craftable_id),
-		_format_cost(_get_craftable_craft_cost(craftable_id)),
-		_get_craftable_use_text(craftable_id),
-	]
+		_get_craftable_craft_cost(craftable_id),
+		_get_craftable_use_text(craftable_id)
+	)
 
 	if is_crafting_now:
 		button.text = "Building..."
@@ -1011,14 +1008,14 @@ func _refresh_upgrade_card(upgrade_id: String) -> void:
 	var card: Dictionary = upgrade_cards[upgrade_id]
 	var level_label: Label = card["level_label"]
 	var detail_label: Label = card["detail_label"]
-	var cost_label: Label = card["cost_label"]
+	var cost_label: RichTextLabel = card["cost_label"]
 	var button: Button = card["button"]
 	var current_level := int(upgrade_levels[upgrade_id])
 	var next_cost := _get_upgrade_cost(upgrade_id)
 
 	level_label.text = "Lv %d" % current_level
 	detail_label.text = _get_upgrade_detail(upgrade_id)
-	cost_label.text = "Cost: %s" % _format_cost(next_cost)
+	cost_label.text = _format_cost_rich_text(next_cost)
 	button.disabled = not _can_afford(next_cost)
 
 
@@ -1728,6 +1725,51 @@ func _spend_resources(cost: Dictionary) -> void:
 		inventory[resource_id] -= int(cost[resource_id])
 
 
+func _on_cost_meta_clicked(meta: Variant) -> void:
+	var meta_text := String(meta)
+	if not meta_text.begins_with("resource:"):
+		return
+
+	var resource_id := meta_text.trim_prefix("resource:")
+	_focus_resource_gather_tab(resource_id)
+
+
+func _focus_resource_gather_tab(resource_id: String) -> void:
+	if not gatherables.has(resource_id):
+		return
+
+	if main_tabs != null:
+		for index in range(main_tabs.get_tab_count()):
+			if main_tabs.get_tab_title(index) == "Gatherables":
+				main_tabs.current_tab = index
+				break
+
+	if gatherable_skill_tabs != null:
+		var skill_id := _get_resource_skill_id(resource_id)
+		for index in range(gatherable_skill_tabs.get_tab_count()):
+			if String(gatherable_skill_tabs.get_child(index).name) == skill_id:
+				gatherable_skill_tabs.current_tab = index
+				break
+
+	_refresh_skill_context_label()
+	for skill_id in skill_order:
+		_refresh_skill_row(skill_id)
+
+
+func _create_resource_navigation_rich_label(font_size: int) -> RichTextLabel:
+	var label := RichTextLabel.new()
+	label.bbcode_enabled = true
+	label.fit_content = true
+	label.scroll_active = false
+	label.context_menu_enabled = false
+	label.shortcut_keys_enabled = false
+	label.selection_enabled = false
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.add_theme_font_size_override("normal_font_size", font_size)
+	label.meta_clicked.connect(_on_cost_meta_clicked)
+	return label
+
+
 func _format_cost(cost: Dictionary) -> String:
 	var parts: Array[String] = []
 	for resource_id in gatherable_order:
@@ -1746,6 +1788,50 @@ func _format_cost(cost: Dictionary) -> String:
 		result += parts[index]
 
 	return result
+
+
+func _format_recipe_detail_rich_text(duration: float, xp: int, cost: Dictionary, use_text: String) -> String:
+	var detail := "%.1fs craft | +%d XP | Cost: %s" % [
+		duration,
+		xp,
+		_format_cost_markup(cost),
+	]
+	if use_text != "":
+		detail += " | %s" % use_text
+
+	return detail
+
+
+func _format_cost_rich_text(cost: Dictionary) -> String:
+	if cost.is_empty():
+		return "Cost: Free"
+
+	return "Cost: %s" % _format_cost_markup(cost)
+
+
+func _format_cost_markup(cost: Dictionary) -> String:
+	var parts: Array[String] = []
+	for resource_id in gatherable_order:
+		if not cost.has(resource_id):
+			continue
+
+		var amount := int(cost[resource_id])
+		var part := _format_resource_cost_part(resource_id, amount)
+
+		parts.append(part)
+
+	if parts.is_empty():
+		return "Free"
+
+	return ", ".join(parts)
+
+
+func _format_resource_cost_part(resource_id: String, amount: int) -> String:
+	var part := "%d %s" % [amount, _get_resource_name(resource_id)]
+	if int(inventory.get(resource_id, 0)) < amount:
+		part = "[url=resource:%s][color=#ff7070]%s[/color][/url]" % [resource_id, part]
+
+	return part
 
 
 func _format_seconds(seconds: float) -> String:
