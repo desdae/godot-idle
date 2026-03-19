@@ -15,6 +15,16 @@
 	"gatherable_tab": true
   },
   {
+	"id": "hunting",
+	"name": "Hunting",
+	"gatherable_tab": true
+  },
+  {
+	"id": "cooking",
+	"name": "Cooking",
+	"gatherable_tab": false
+  },
+  {
 	"id": "crafting",
 	"name": "Crafting",
 	"gatherable_tab": false

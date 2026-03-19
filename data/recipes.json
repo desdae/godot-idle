@@ -24,5 +24,20 @@
 	"outputs": {
 	  "coal": 1
 	}
+  },
+  {
+	"id": "cook_rabbit",
+	"name": "Cook Rabbit",
+	"station": "firepit",
+	"skill": "cooking",
+	"craft_time": 15.0,
+	"craft_xp": 5,
+	"craft_cost": {
+	  "raw_rabbit": 1,
+	  "logs": 1
+	},
+	"outputs": {
+	  "cooked_rabbit": 1
+	}
   }
 ]

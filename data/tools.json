@@ -22,5 +22,17 @@
 	  "stone": 2
 	},
 	"use_text": "Needed for Maple Logs. Each tree costs 2 durability."
+  },
+  {
+	"id": "flint_spear",
+	"name": "Flint Spear",
+	"craft_time": 12.0,
+	"craft_xp": 6,
+	"max_durability": 100,
+	"craft_cost": {
+	  "stick": 2,
+	  "flint": 2
+	},
+	"use_text": "Needed for Rabbit hunts. Each hunt costs 2 durability."
   }
 ]

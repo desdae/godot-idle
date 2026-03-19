@@ -55,7 +55,19 @@
 	"base_time": 4.4,
 	"xp": 5,
 	"base_capacity": 6,
-	"unlock_level": 5
+	"unlock_level": 3
+  },
+  {
+	"id": "rabbit",
+	"name": "Rabbit",
+	"skill": "hunting",
+	"base_time": 12.0,
+	"xp": 6,
+	"base_capacity": 6,
+	"unlock_level": 1,
+	"required_tool": "flint_spear",
+	"tool_durability_cost": 2,
+	"output_item": "raw_rabbit"
   },
   {
 	"id": "ore",

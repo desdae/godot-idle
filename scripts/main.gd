@@ -1022,8 +1022,9 @@ func _complete_current_action() -> void:
 	match _get_action_type(action):
 		"gather":
 			var resource_id := _get_action_id(action)
-			if inventory[resource_id] < _get_capacity(resource_id):
-				inventory[resource_id] += 1
+			var output_item_id := _get_gather_output_item_id(resource_id)
+			if inventory[output_item_id] < _get_capacity(resource_id):
+				inventory[output_item_id] += 1
 				_gain_skill_exp(_get_resource_skill_id(resource_id), _get_resource_xp(resource_id))
 		"craft_tool":
 			var tool_id := _get_action_id(action)
@@ -1042,7 +1043,7 @@ func _complete_current_action() -> void:
 			var recipe_outputs := _get_recipe_outputs(recipe_id)
 			for output_id in recipe_outputs.keys():
 				inventory[output_id] += int(recipe_outputs[output_id])
-			_gain_skill_exp("crafting", _get_recipe_craft_xp(recipe_id))
+			_gain_skill_exp(_get_recipe_skill_id(recipe_id), _get_recipe_craft_xp(recipe_id))
 
 	current_action.clear()
 	_refresh_ui()
@@ -1097,6 +1098,7 @@ func _refresh_resource_card(resource_id: String) -> void:
 
 	var unlock_level := _get_unlock_level(resource_id)
 	var current_capacity := _get_capacity(resource_id)
+	var output_item_id := _get_gather_output_item_id(resource_id)
 	var is_current_action := _is_current_gather_action(resource_id)
 	var block_reason := _get_gather_queue_block_reason(resource_id)
 	var display_duration := _get_gather_action_duration(resource_id)
@@ -1106,7 +1108,7 @@ func _refresh_resource_card(resource_id: String) -> void:
 			unlock_level,
 			display_duration,
 			_get_resource_xp(resource_id),
-			inventory[resource_id],
+			int(inventory.get(output_item_id, 0)),
 			current_capacity,
 		]
 		queue_button.disabled = true
@@ -1137,7 +1139,7 @@ func _refresh_resource_card(resource_id: String) -> void:
 		unlock_level,
 		display_duration,
 		_get_resource_xp(resource_id),
-		inventory[resource_id],
+		int(inventory.get(output_item_id, 0)),
 		current_capacity,
 	]
 
@@ -1634,6 +1636,8 @@ func _get_skill_context_text() -> String:
 
 	if active_skill_id == "crafting":
 		return "Crafting levels up by making tools and buildables."
+	if active_skill_id == "cooking":
+		return "Cooking levels up by processing meals like Cook Rabbit."
 
 	return "%s: %s" % [_get_skill_name(active_skill_id), _get_next_unlock_text_for_skill(active_skill_id)]
 
@@ -1740,6 +1744,14 @@ func _get_resource_skill_id(resource_id: String) -> String:
 
 	var gatherable: Dictionary = gatherables[resource_id]
 	return String(gatherable.get("skill", "gathering"))
+
+
+func _get_gather_output_item_id(resource_id: String) -> String:
+	if not gatherables.has(resource_id):
+		return resource_id
+
+	var gatherable: Dictionary = gatherables[resource_id]
+	return String(gatherable.get("output_item", resource_id))
 
 
 func _get_inventory_item_order() -> Array:
@@ -1959,6 +1971,11 @@ func _get_recipe_craft_xp(recipe_id: String) -> int:
 	return int(recipe.get("craft_xp", 0))
 
 
+func _get_recipe_skill_id(recipe_id: String) -> String:
+	var recipe: Dictionary = recipes[recipe_id]
+	return String(recipe.get("skill", "crafting"))
+
+
 func _build_pipeline_end_state() -> Dictionary:
 	var state := _create_simulation_state()
 
@@ -2002,7 +2019,8 @@ func _get_action_block_reason_in_state(action: Dictionary, state: Dictionary) ->
 	var action_id := _get_action_id(action)
 	match action_type:
 		"gather":
-			if int(state["inventory"][action_id]) >= _get_capacity(action_id):
+			var output_item_id := _get_gather_output_item_id(action_id)
+			if int(state["inventory"].get(output_item_id, 0)) >= _get_capacity(action_id):
 				return "Full at end of queue"
 
 			var required_tool_id := _get_required_tool_id(action_id)
@@ -2075,8 +2093,9 @@ func _apply_action_completion_to_state(state: Dictionary, action: Dictionary) ->
 	var action_id := _get_action_id(action)
 	match action_type:
 		"gather":
-			if int(state["inventory"][action_id]) < _get_capacity(action_id):
-				state["inventory"][action_id] += 1
+			var output_item_id := _get_gather_output_item_id(action_id)
+			if int(state["inventory"].get(output_item_id, 0)) < _get_capacity(action_id):
+				state["inventory"][output_item_id] += 1
 				var gather_skill_id := _get_resource_skill_id(action_id)
 				var gather_skill_state: Dictionary = state["skills"][gather_skill_id]
 				var gather_result := _simulate_exp_gain(
@@ -2117,7 +2136,8 @@ func _apply_action_completion_to_state(state: Dictionary, action: Dictionary) ->
 			)
 			state["skills"]["crafting"] = upgrade_result
 		"process_recipe":
-			var recipe_skill_state: Dictionary = state["skills"]["crafting"]
+			var recipe_skill_id := _get_recipe_skill_id(action_id)
+			var recipe_skill_state: Dictionary = state["skills"][recipe_skill_id]
 			var recipe_outputs := _get_recipe_outputs(action_id)
 			for output_id in recipe_outputs.keys():
 				state["inventory"][output_id] += int(recipe_outputs[output_id])
@@ -2127,7 +2147,7 @@ func _apply_action_completion_to_state(state: Dictionary, action: Dictionary) ->
 				int(recipe_skill_state["exp_to_next"]),
 				_get_recipe_craft_xp(action_id)
 			)
-			state["skills"]["crafting"] = recipe_result
+			state["skills"][recipe_skill_id] = recipe_result
 
 
 func _get_action_queue_label(action: Dictionary) -> String:
