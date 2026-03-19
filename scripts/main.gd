@@ -33,6 +33,7 @@ var craftable_upgrade_levels := {}
 var action_queue: Array[Dictionary] = []
 var current_action := {}
 var current_action_completion_pending := false
+var is_queue_paused := false
 
 var skill_states := {}
 var upgrade_levels := {}
@@ -46,6 +47,7 @@ var queue_summary_label: Label
 var queue_time_left_label: Label
 var queue_list: ItemList
 var clear_queue_button: Button
+var pause_queue_button: Button
 var skill_context_label: Label
 var page_margin: MarginContainer
 var root_box: VBoxContainer
@@ -222,6 +224,7 @@ func _initialize_state() -> void:
 	action_queue.clear()
 	current_action.clear()
 	current_action_completion_pending = false
+	is_queue_paused = false
 
 
 func _process(delta: float) -> void:
@@ -229,10 +232,10 @@ func _process(delta: float) -> void:
 		current_action_completion_pending = false
 		_complete_current_action()
 
-	if current_action.is_empty():
+	if not is_queue_paused and current_action.is_empty():
 		_start_next_action()
 
-	if not current_action.is_empty():
+	if not is_queue_paused and not current_action.is_empty():
 		var duration := maxf(0.001, float(current_action["duration"]))
 		var elapsed := minf(float(current_action["elapsed"]) + delta, duration)
 		current_action["elapsed"] = elapsed
@@ -576,6 +579,11 @@ func _build_queue_panel(parent: VBoxContainer) -> void:
 	clear_queue_button.text = "Clear queued actions"
 	clear_queue_button.pressed.connect(_clear_queue)
 	queue_box.add_child(clear_queue_button)
+
+	pause_queue_button = Button.new()
+	pause_queue_button.text = "Pause queue"
+	pause_queue_button.pressed.connect(_toggle_queue_pause)
+	queue_box.add_child(pause_queue_button)
 
 
 func _build_tools_panel(parent: VBoxContainer) -> void:
@@ -974,6 +982,11 @@ func _clear_queue() -> void:
 	_refresh_ui()
 
 
+func _toggle_queue_pause() -> void:
+	is_queue_paused = not is_queue_paused
+	_refresh_ui()
+
+
 func _start_next_action() -> void:
 	current_action_completion_pending = false
 	while not action_queue.is_empty():
@@ -1061,6 +1074,8 @@ func _refresh_ui() -> void:
 		queue_list.add_item("%d. %s" % [index + 1, _get_action_queue_label(queued_action)])
 
 	clear_queue_button.disabled = action_queue.is_empty()
+	pause_queue_button.text = "Resume queue" if is_queue_paused else "Pause queue"
+	pause_queue_button.disabled = current_action.is_empty() and action_queue.is_empty()
 	_refresh_tool_panel()
 	_refresh_craftable_panel()
 	_refresh_recipe_panel()
@@ -1408,19 +1423,25 @@ func _refresh_runtime_status() -> void:
 		active_count = 1
 
 	if current_action.is_empty():
-		current_action_label.text = "Current action: Idle"
+		current_action_label.text = "Current action: Paused" if is_queue_paused else "Current action: Idle"
 	else:
 		var duration := maxf(0.001, float(current_action["duration"]))
 		var elapsed := minf(float(current_action["elapsed"]), duration)
 		var percent := int(round((elapsed / duration) * 100.0))
 		var time_left := maxf(0.0, duration - elapsed)
-		current_action_label.text = "Current action: %s (%d%%, %s left)" % [
+		var action_prefix := "Current action"
+		if is_queue_paused:
+			action_prefix = "Current action (Paused)"
+		current_action_label.text = "%s: %s (%d%%, %s left)" % [
+			action_prefix,
 			_get_action_progress_label(current_action),
 			clampi(percent, 0, 100),
 			_format_seconds(time_left),
 		]
 
-	queue_summary_label.text = "Pipeline: %d active, %d queued / %d queued slots" % [
+	var queue_state_text := "Paused" if is_queue_paused else "Running"
+	queue_summary_label.text = "Pipeline: %s | %d active, %d queued / %d queued slots" % [
+		queue_state_text,
 		active_count,
 		action_queue.size(),
 		_get_queue_capacity(),
