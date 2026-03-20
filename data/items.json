@@ -3,53 +3,71 @@
 	"id": "stick",
 	"name": "Stick",
 	"description": "Basic wood gathered by hand and used in many early recipes.",
+	"category": "resources",
+	"gather_source": "stick",
 	"fuel_units": 1
   },
   {
 	"id": "stone",
 	"name": "Stone",
-	"description": "A common mineral used for starter tools, upgrades, and construction."
+	"description": "A common mineral used for starter tools, upgrades, and construction.",
+	"category": "resources",
+	"gather_source": "stone"
   },
   {
 	"id": "berries",
 	"name": "Berries",
-	"description": "Foraged food that helps round out early gathering costs."
+	"description": "Foraged food that helps round out early gathering costs.",
+	"category": "resources",
+	"gather_source": "berries"
   },
   {
 	"id": "grass",
 	"name": "Grass",
-	"description": "Fibrous plant matter gathered with a Stone Knife for building and crafting."
+	"description": "Fibrous plant matter gathered with a Stone Knife for building and crafting.",
+	"category": "resources",
+	"gather_source": "grass"
   },
   {
 	"id": "logs",
 	"name": "Maple Logs",
 	"description": "Heavy wood harvested with a Stone Axe and used for structures and fuel.",
+	"category": "resources",
+	"gather_source": "logs",
 	"fuel_units": 2
   },
   {
 	"id": "flint",
 	"name": "Flint",
-	"description": "A harder stone that marks the transition into stronger crafting tiers."
+	"description": "A harder stone that marks the transition into stronger crafting tiers.",
+	"category": "resources",
+	"gather_source": "flint"
   },
   {
 	"id": "ore",
 	"name": "Copper Ore",
-	"description": "Raw copper-bearing rock that can later be processed into metal goods."
+	"description": "Raw copper-bearing rock that can later be processed into metal goods.",
+	"category": "resources",
+	"gather_source": "ore"
   },
   {
 	"id": "raw_rabbit",
 	"name": "Raw Rabbit",
-	"description": "Fresh game meat gathered by hunting with a Flint Spear."
+	"description": "Fresh game meat gathered by hunting with a Flint Spear.",
+	"category": "food",
+	"gather_source": "rabbit"
   },
   {
 	"id": "cooked_rabbit",
 	"name": "Cooked Rabbit",
-	"description": "A hot meal prepared at the Firepit from rabbit and fuel."
+	"description": "A hot meal prepared at the Firepit from rabbit and fuel.",
+	"category": "food"
   },
   {
 	"id": "coal",
 	"name": "Coal",
 	"description": "Fuel made from burning wood in a Firepit.",
+	"category": "materials",
 	"fuel_units": 6
   }
 ]

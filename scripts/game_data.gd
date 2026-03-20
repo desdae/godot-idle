@@ -39,6 +39,22 @@ static func get_item_fuel_units(item_id: String, data: Dictionary) -> int:
 	return int(item.get("fuel_units", 0))
 
 
+static func get_item_category(item_id: String, data: Dictionary) -> String:
+	if not data["items"].has(item_id):
+		return "materials"
+
+	var item: Dictionary = data["items"][item_id]
+	return String(item.get("category", "materials"))
+
+
+static func get_item_gather_source(item_id: String, data: Dictionary) -> String:
+	if not data["items"].has(item_id):
+		return ""
+
+	var item: Dictionary = data["items"][item_id]
+	return String(item.get("gather_source", ""))
+
+
 static func get_resource_skill_id(resource_id: String, data: Dictionary) -> String:
 	if not data["gatherables"].has(resource_id):
 		return "crafting"
@@ -61,11 +77,34 @@ static func get_inventory_item_order(data: Dictionary) -> Array:
 		if not inventory_item_order.has(item_id):
 			inventory_item_order.append(item_id)
 
-	for resource_id in data["gatherable_order"]:
-		if not inventory_item_order.has(resource_id):
-			inventory_item_order.append(resource_id)
-
 	return inventory_item_order
+
+
+static func get_inventory_group_ids(data: Dictionary) -> Array:
+	return ["resources", "materials", "food"]
+
+
+static func get_inventory_group_name(group_id: String) -> String:
+	match group_id:
+		"resources":
+			return "Resources"
+		"materials":
+			return "Materials"
+		"food":
+			return "Food"
+		_:
+			return "Items"
+
+
+static func get_inventory_group_item_ids(group_id: String, data: Dictionary) -> Array:
+	var item_ids: Array = []
+	for item_id in data["item_order"]:
+		if get_item_category(item_id, data) != group_id:
+			continue
+
+		item_ids.append(item_id)
+
+	return item_ids
 
 
 static func get_processing_summary_item_ids(data: Dictionary) -> Array:

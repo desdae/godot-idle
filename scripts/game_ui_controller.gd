@@ -360,14 +360,22 @@ static func _refresh_processing_panel(game: Dictionary) -> void:
 
 
 static func _refresh_item_summary(game: Dictionary) -> void:
-	for item_id in GameData.get_processing_summary_item_ids(game["data"]):
-		if not game["item_labels"].has(item_id):
+	for item_id in GameData.get_inventory_item_order(game["data"]):
+		if not game["inventory_item_labels"].has(item_id):
 			continue
 
+		var tooltip := GameData.get_item_description(item_id, game["data"])
+		var gather_source := GameData.get_item_gather_source(item_id, game["data"])
+		if gather_source != "":
+			var source_name := GameData.get_resource_name(gather_source, game["data"])
+			if tooltip != "":
+				tooltip += "\n"
+			tooltip += "Source: %s" % source_name
+
 		GameUiRefresh.apply_item_summary(
-			game["item_labels"][item_id],
+			game["inventory_item_labels"][item_id],
 			"%s: %d" % [GameData.get_resource_name(item_id, game["data"]), int(game["inventory"].get(item_id, 0))],
-			GameData.get_item_description(item_id, game["data"])
+			tooltip
 		)
 
 

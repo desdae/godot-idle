@@ -190,6 +190,68 @@ static func build_skill_panel(parent: VBoxContainer, skill_entries: Array) -> Di
 	}
 
 
+static func build_inventory_panel(parent: VBoxContainer, inventory_groups: Array) -> Dictionary:
+	if inventory_groups.is_empty():
+		return {"item_labels": {}}
+
+	var inventory_panel := PanelContainer.new()
+	inventory_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(inventory_panel)
+
+	var inventory_margin := MarginContainer.new()
+	inventory_margin.add_theme_constant_override("margin_left", 10)
+	inventory_margin.add_theme_constant_override("margin_top", 8)
+	inventory_margin.add_theme_constant_override("margin_right", 10)
+	inventory_margin.add_theme_constant_override("margin_bottom", 8)
+	inventory_panel.add_child(inventory_margin)
+
+	var inventory_box := VBoxContainer.new()
+	inventory_box.add_theme_constant_override("separation", 6)
+	inventory_margin.add_child(inventory_box)
+
+	var inventory_title := Label.new()
+	inventory_title.text = "Inventory"
+	inventory_title.add_theme_font_size_override("font_size", 18)
+	inventory_box.add_child(inventory_title)
+
+	var groups_row := HBoxContainer.new()
+	groups_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	groups_row.add_theme_constant_override("separation", 10)
+	inventory_box.add_child(groups_row)
+
+	var item_labels := {}
+	for group in inventory_groups:
+		var group_panel := PanelContainer.new()
+		group_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		groups_row.add_child(group_panel)
+
+		var group_margin := MarginContainer.new()
+		group_margin.add_theme_constant_override("margin_left", 8)
+		group_margin.add_theme_constant_override("margin_top", 6)
+		group_margin.add_theme_constant_override("margin_right", 8)
+		group_margin.add_theme_constant_override("margin_bottom", 6)
+		group_panel.add_child(group_margin)
+
+		var group_box := VBoxContainer.new()
+		group_box.add_theme_constant_override("separation", 4)
+		group_margin.add_child(group_box)
+
+		var group_label := Label.new()
+		group_label.text = String(group["name"])
+		group_label.add_theme_font_size_override("font_size", 15)
+		group_box.add_child(group_label)
+
+		for item_entry in group["items"]:
+			var item_label := Label.new()
+			item_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			group_box.add_child(item_label)
+			item_labels[String(item_entry["id"])] = item_label
+
+	return {
+		"item_labels": item_labels,
+	}
+
+
 static func build_gatherables_panel(
 	parent: Container,
 	skill_groups: Array,
@@ -523,7 +585,6 @@ static func build_craftables_panel(
 
 static func build_processing_panel(
 	parent: VBoxContainer,
-	summary_item_ids: Array,
 	station_entries: Array,
 	queue_recipe_handler: Callable,
 	queue_station_fuel_handler: Callable,
@@ -552,22 +613,6 @@ static func build_processing_panel(
 	processing_title.text = "Stations"
 	processing_title.add_theme_font_size_override("font_size", 18)
 	processing_box.add_child(processing_title)
-
-	var item_labels := {}
-	if not summary_item_ids.is_empty():
-		var items_panel := VBoxContainer.new()
-		items_panel.add_theme_constant_override("separation", 3)
-		processing_box.add_child(items_panel)
-
-		var items_title := Label.new()
-		items_title.text = "Items"
-		items_title.add_theme_font_size_override("font_size", 15)
-		items_panel.add_child(items_title)
-
-		for item_id in summary_item_ids:
-			var item_label := Label.new()
-			items_panel.add_child(item_label)
-			item_labels[String(item_id)] = item_label
 
 	var processing_station_cards := {}
 	var processing_station_expanded := {}
@@ -690,7 +735,6 @@ static func build_processing_panel(
 		}
 
 	return {
-		"item_labels": item_labels,
 		"recipe_cards": recipe_cards,
 		"processing_station_cards": processing_station_cards,
 		"processing_station_expanded": processing_station_expanded,

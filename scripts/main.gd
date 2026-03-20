@@ -80,7 +80,7 @@ var gatherable_skill_tabs: TabContainer
 var tool_cards := {}
 var craftable_cards := {}
 var recipe_cards := {}
-var item_labels := {}
+var inventory_item_labels := {}
 var processing_station_cards := {}
 var processing_station_expanded := {}
 var selected_queue_index := -1
@@ -159,6 +159,9 @@ func _load_game_data() -> bool:
 	upgrade_order = upgrade_data["order"]
 	upgrades = upgrade_data["entries"]
 
+	if not _validate_game_data():
+		return false
+
 	return true
 
 
@@ -212,10 +215,36 @@ func _load_ordered_data_file(path: String) -> Dictionary:
 	}
 
 
+func _validate_game_data() -> bool:
+	for item_id in item_order:
+		if items[item_id].get("name", "") == "":
+			push_error("Item is missing a display name: %s" % item_id)
+			return false
+
+	for resource_id in gatherable_order:
+		var output_item_id := GameData.get_gather_output_item_id(resource_id, _build_data_context())
+		if not items.has(output_item_id):
+			push_error("Gatherable output item is missing from items.json: %s -> %s" % [resource_id, output_item_id])
+			return false
+
+	for recipe_id in recipe_order:
+		var recipe_cost: Dictionary = GameData.get_recipe_craft_cost(recipe_id, _build_data_context())
+		for item_id in recipe_cost.keys():
+			if not items.has(item_id):
+				push_error("Recipe cost item is missing from items.json: %s -> %s" % [recipe_id, item_id])
+				return false
+
+		var recipe_outputs: Dictionary = recipes[recipe_id].get("outputs", {})
+		for item_id in recipe_outputs.keys():
+			if not items.has(item_id):
+				push_error("Recipe output item is missing from items.json: %s -> %s" % [recipe_id, item_id])
+				return false
+
+	return true
+
+
 func _initialize_state() -> void:
 	inventory.clear()
-	for resource_id in gatherable_order:
-		inventory[resource_id] = 0
 	for item_id in item_order:
 		inventory[item_id] = 0
 
@@ -331,7 +360,7 @@ func _build_ui_controller_context() -> Dictionary:
 		"tool_cards": tool_cards,
 		"craftable_cards": craftable_cards,
 		"recipe_cards": recipe_cards,
-		"item_labels": item_labels,
+		"inventory_item_labels": inventory_item_labels,
 		"processing_station_cards": processing_station_cards,
 		"processing_station_expanded": processing_station_expanded,
 	}
@@ -399,6 +428,7 @@ func _build_ui() -> void:
 	root_box.add_child(subtitle)
 
 	_build_skill_panel(root_box)
+	_build_inventory_panel(root_box)
 	_build_content(root_box)
 	_build_toast()
 
@@ -420,6 +450,29 @@ func _build_skill_panel(root: VBoxContainer) -> void:
 	var refs := GameUiBuilder.build_skill_panel(root, skill_entries)
 	skill_rows = refs["skill_rows"]
 	skill_context_label = refs["skill_context_label"]
+
+
+func _build_inventory_panel(root: VBoxContainer) -> void:
+	var inventory_groups := []
+	for group_id in GameData.get_inventory_group_ids(_build_data_context()):
+		var item_entries := []
+		for item_id in GameData.get_inventory_group_item_ids(group_id, _build_data_context()):
+			item_entries.append({
+				"id": item_id,
+				"name": _get_resource_name(item_id),
+			})
+
+		if item_entries.is_empty():
+			continue
+
+		inventory_groups.append({
+			"id": group_id,
+			"name": GameData.get_inventory_group_name(group_id),
+			"items": item_entries,
+		})
+
+	var refs := GameUiBuilder.build_inventory_panel(root, inventory_groups)
+	inventory_item_labels = refs["item_labels"]
 
 
 func _build_content(root: VBoxContainer) -> void:
@@ -586,8 +639,6 @@ func _build_craftables_panel(parent: VBoxContainer) -> void:
 
 
 func _build_processing_panel(parent: VBoxContainer) -> void:
-	var summary_item_ids := _get_processing_summary_item_ids()
-
 	var recipes_by_station := {}
 	for recipe_id in recipe_order:
 		var station_id := _get_recipe_station_id(recipe_id)
@@ -624,7 +675,6 @@ func _build_processing_panel(parent: VBoxContainer) -> void:
 
 	var refs := GameUiBuilder.build_processing_panel(
 		parent,
-		summary_item_ids,
 		station_entries,
 		Callable(self, "_queue_recipe"),
 		Callable(self, "_queue_station_fuel"),
@@ -634,7 +684,6 @@ func _build_processing_panel(parent: VBoxContainer) -> void:
 	if refs.is_empty():
 		return
 
-	item_labels = refs["item_labels"]
 	recipe_cards = refs["recipe_cards"]
 	processing_station_cards = refs["processing_station_cards"]
 	processing_station_expanded = refs["processing_station_expanded"]
