@@ -3,6 +3,7 @@ extends Control
 const GameActions = preload("res://scripts/game_actions.gd")
 const GameData = preload("res://scripts/game_data.gd")
 const GameEconomy = preload("res://scripts/game_economy.gd")
+const GameInteractions = preload("res://scripts/game_interactions.gd")
 const GamePresentation = preload("res://scripts/game_presentation.gd")
 const GameQueue = preload("res://scripts/game_queue.gd")
 const GameRules = preload("res://scripts/game_rules.gd")
@@ -1272,10 +1273,6 @@ func _is_resource_unlocked_in_state(resource_id: String, state: Dictionary) -> b
 	return GameRules.is_resource_unlocked_in_state(resource_id, state, _build_rules_context())
 
 
-func _get_resource_unlock_requirement_text(resource_id: String) -> String:
-	return GameRules.get_resource_unlock_requirement_text(resource_id, _build_rules_context())
-
-
 func _skill_has_gatherables(skill_id: String) -> bool:
 	return GameData.skill_has_gatherables(skill_id, _build_data_context())
 
@@ -1552,18 +1549,12 @@ func _spend_resources(cost: Dictionary) -> void:
 
 
 func _on_cost_meta_clicked(meta: Variant) -> void:
-	var meta_text := String(meta)
-	if not meta_text.begins_with("resource:"):
+	var parsed_meta := GameInteractions.parse_resource_meta(meta)
+	if parsed_meta.is_empty():
 		return
 
-	var meta_parts := meta_text.split(":")
-	if meta_parts.size() < 2:
-		return
-
-	var resource_id := String(meta_parts[1])
-	var required_amount := 0
-	if meta_parts.size() >= 3:
-		required_amount = int(meta_parts[2])
+	var resource_id := String(parsed_meta["resource_id"])
+	var required_amount := int(parsed_meta["required_amount"])
 
 	if Input.is_key_pressed(KEY_CTRL):
 		_queue_linked_resource_shortfall(resource_id, required_amount)
@@ -1573,18 +1564,18 @@ func _on_cost_meta_clicked(meta: Variant) -> void:
 
 
 func _focus_resource_gather_tab(resource_id: String) -> void:
-	var gather_resource_id := _get_gather_resource_for_item(resource_id)
-	if gather_resource_id == "":
+	var focus_target := GameInteractions.get_focus_target_for_resource(resource_id, _build_data_context())
+	if focus_target.is_empty():
 		return
 
 	if main_tabs != null:
 		for index in range(main_tabs.get_tab_count()):
-			if main_tabs.get_tab_title(index) == "Gatherables":
+			if main_tabs.get_tab_title(index) == String(focus_target["main_tab_title"]):
 				main_tabs.current_tab = index
 				break
 
 	if gatherable_skill_tabs != null:
-		var skill_id := _get_resource_skill_id(gather_resource_id)
+		var skill_id := String(focus_target["gather_skill_id"])
 		for index in range(gatherable_skill_tabs.get_tab_count()):
 			if String(gatherable_skill_tabs.get_child(index).name) == skill_id:
 				gatherable_skill_tabs.current_tab = index
@@ -1596,48 +1587,23 @@ func _focus_resource_gather_tab(resource_id: String) -> void:
 
 
 func _queue_linked_resource_shortfall(item_id: String, required_amount: int) -> void:
-	var gather_resource_id := _get_gather_resource_for_item(item_id)
-	if gather_resource_id == "":
-		_show_toast("Can't auto-queue %s from a cost link." % _get_resource_name(item_id))
-		return
-
-	var pipeline_state := _build_pipeline_end_state()
-	var projected_amount := int(pipeline_state["inventory"].get(item_id, 0))
-	var missing_amount := required_amount - projected_amount
-	if missing_amount <= 0:
-		return
-
-	var gather_action := _make_gather_action(gather_resource_id)
-	var block_reason := _get_action_block_reason_in_state(gather_action, pipeline_state)
-	if block_reason != "":
-		_show_toast(_get_auto_queue_requirement_message(gather_resource_id, block_reason))
-		return
-
-	if _get_free_queue_slots() <= 0:
-		_show_toast("Queue is full.")
-		return
-
-	_queue_action_count(gather_action, missing_amount)
-
-
-func _get_gather_resource_for_item(item_id: String) -> String:
-	if gatherables.has(item_id):
-		return item_id
-
-	for resource_id in gatherable_order:
-		if _get_gather_output_item_id(resource_id) == item_id:
-			return resource_id
-
-	return ""
-
-
-func _get_auto_queue_requirement_message(resource_id: String, block_reason: String) -> String:
-	return GamePresentation.get_auto_queue_requirement_message(
-		resource_id,
-		block_reason,
+	var plan := GameInteractions.build_linked_resource_queue_plan(
+		item_id,
+		required_amount,
+		_build_pipeline_end_state(),
+		_get_free_queue_slots(),
 		_build_data_context(),
-		_get_resource_unlock_requirement_text(resource_id)
+		_build_rules_context()
 	)
+	if plan.has("toast_message"):
+		_show_toast(String(plan["toast_message"]))
+		return
+
+	var queue_amount := int(plan.get("queue_amount", 0))
+	if queue_amount <= 0:
+		return
+
+	_queue_action_count(plan["action"], queue_amount)
 
 
 func _show_toast(message: String, duration: float = 2.6) -> void:
