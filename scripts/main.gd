@@ -1,6 +1,7 @@
 extends Control
 
 const GameActions = preload("res://scripts/game_actions.gd")
+const GameCommands = preload("res://scripts/game_commands.gd")
 const GameData = preload("res://scripts/game_data.gd")
 const GameDomain = preload("res://scripts/game_domain.gd")
 const GameEconomy = preload("res://scripts/game_economy.gd")
@@ -594,116 +595,105 @@ func _build_upgrades_panel(parent: VBoxContainer) -> void:
 
 
 func _queue_pickable(resource_id: String) -> void:
-	var block_reason := GameQueries.get_gather_queue_block_reason(
+	if not GameCommands.try_queue_pickable(
 		resource_id,
+		_get_requested_queue_amount(),
 		action_queue,
-		GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
 		current_action,
+		skill_states,
+		upgrade_levels,
+		base_queue_size,
+		queue_size_per_upgrade,
 		_create_simulation_state(),
+		_build_data_context(),
 		_build_rules_context()
-	)
-	if not GameQueries.can_queue_pickable(resource_id, skill_states, _build_data_context(), block_reason):
+	):
 		return
 
-	_queue_action_count(_make_gather_action(resource_id), _get_requested_queue_amount())
+	_refresh_ui()
+	if current_action.is_empty():
+		_start_next_action()
 
 
 func _craft_tool(tool_id: String) -> void:
-	if not GameQueries.can_queue_from_block_reason(
-		GameQueries.get_tool_queue_block_reason(
-			tool_id,
-			action_queue,
-			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
-			current_action,
-			_create_simulation_state(),
-			_build_rules_context()
-		)
+	if not GameCommands.try_queue_tool(
+		tool_id,
+		action_queue,
+		current_action,
+		upgrade_levels,
+		base_queue_size,
+		queue_size_per_upgrade,
+		_create_simulation_state(),
+		_build_rules_context()
 	):
 		return
 
-	_queue_action(_make_craft_tool_action(tool_id))
+	_refresh_ui()
+	if current_action.is_empty():
+		_start_next_action()
 
 
 func _craft_item(craftable_id: String) -> void:
-	if GameState.get_crafted_item_count(crafted_items, craftable_id) > 0:
-		_upgrade_craftable(craftable_id)
-		return
-
-	if not GameQueries.can_queue_from_block_reason(
-		GameQueries.get_craftable_queue_block_reason(
-			craftable_id,
-			action_queue,
-			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
-			current_action,
-			_create_simulation_state(),
-			_build_rules_context()
-		)
+	if not GameCommands.try_queue_craftable(
+		craftable_id,
+		action_queue,
+		current_action,
+		crafted_items,
+		upgrade_levels,
+		base_queue_size,
+		queue_size_per_upgrade,
+		_create_simulation_state(),
+		_build_rules_context()
 	):
 		return
 
-	_queue_action(_make_craft_item_action(craftable_id))
-
-
-func _upgrade_craftable(craftable_id: String) -> void:
-	if not GameQueries.can_queue_from_block_reason(
-		GameQueries.get_craftable_upgrade_queue_block_reason(
-			craftable_id,
-			action_queue,
-			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
-			current_action,
-			_create_simulation_state(),
-			_build_rules_context()
-		)
-	):
-		return
-
-	_queue_action(_make_upgrade_craftable_action(craftable_id))
+	_refresh_ui()
+	if current_action.is_empty():
+		_start_next_action()
 
 
 func _queue_recipe(recipe_id: String) -> void:
-	if not GameQueries.can_queue_from_block_reason(
-		GameQueries.get_recipe_queue_block_reason(
-			recipe_id,
-			action_queue,
-			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
-			current_action,
-			_create_simulation_state(),
-			_build_rules_context()
-		)
+	if not GameCommands.try_queue_recipe(
+		recipe_id,
+		_get_requested_queue_amount(),
+		action_queue,
+		current_action,
+		upgrade_levels,
+		base_queue_size,
+		queue_size_per_upgrade,
+		_create_simulation_state(),
+		_build_rules_context()
 	):
 		return
 
-	_queue_action_count(_make_process_recipe_action(recipe_id), _get_requested_queue_amount())
+	_refresh_ui()
+	if current_action.is_empty():
+		_start_next_action()
 
 
 func _queue_station_fuel(craftable_id: String, item_id: String) -> void:
-	if not GameQueries.can_queue_from_block_reason(
-		GameQueries.get_station_fuel_queue_block_reason(
-			craftable_id,
-			item_id,
-			action_queue,
-			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
-			current_action,
-			_create_simulation_state(),
-			_build_rules_context()
-		)
+	if not GameCommands.try_queue_station_fuel(
+		craftable_id,
+		item_id,
+		_get_requested_queue_amount(),
+		action_queue,
+		current_action,
+		upgrade_levels,
+		base_queue_size,
+		queue_size_per_upgrade,
+		_create_simulation_state(),
+		_build_rules_context()
 	):
 		return
 
-	_queue_action_count(_make_refuel_station_action(craftable_id, item_id), _get_requested_queue_amount())
+	_refresh_ui()
+	if current_action.is_empty():
+		_start_next_action()
 
 
 func _toggle_processing_station(craftable_id: String) -> void:
-	processing_station_expanded[craftable_id] = not bool(processing_station_expanded.get(craftable_id, true))
+	GameCommands.toggle_processing_station(processing_station_expanded, craftable_id)
 	_refresh_recipe_panel()
-
-
-func _queue_action(action: Dictionary) -> void:
-	action_queue.append(action.duplicate(true))
-	_refresh_ui()
-
-	if current_action.is_empty():
-		_start_next_action()
 
 
 func _queue_action_count(action: Dictionary, amount: int) -> void:
@@ -726,22 +716,18 @@ func _queue_action_count(action: Dictionary, amount: int) -> void:
 
 
 func _buy_upgrade(upgrade_id: String) -> void:
-	var cost := GameDomain.get_upgrade_cost(upgrade_id, upgrade_levels, upgrades, _build_data_context())
-	if not GameDomain.can_afford(cost, inventory):
+	if not GameCommands.buy_upgrade(upgrade_id, inventory, upgrade_levels, upgrades, _build_data_context()):
 		return
-
-	GameDomain.spend_resources(inventory, cost)
-	upgrade_levels[upgrade_id] += 1
 	_refresh_ui()
 
 
 func _clear_queue() -> void:
-	action_queue.clear()
+	GameCommands.clear_queue(action_queue)
 	_refresh_ui()
 
 
 func _toggle_queue_pause() -> void:
-	is_queue_paused = not is_queue_paused
+	is_queue_paused = GameCommands.toggle_queue_pause(is_queue_paused)
 	_refresh_ui()
 
 
