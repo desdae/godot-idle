@@ -1,6 +1,84 @@
 extends RefCounted
 
 
+static func _apply_fancy_button(button: Button, variant: String = "gold", compact: bool = false) -> void:
+	button.add_theme_stylebox_override("normal", _make_button_style(variant, "normal"))
+	button.add_theme_stylebox_override("hover", _make_button_style(variant, "hover"))
+	button.add_theme_stylebox_override("pressed", _make_button_style(variant, "pressed"))
+	button.add_theme_stylebox_override("disabled", _make_button_style(variant, "disabled"))
+	button.add_theme_stylebox_override("focus", _make_button_style(variant, "hover"))
+	button.add_theme_color_override("font_color", _get_button_font_color(variant, false))
+	button.add_theme_color_override("font_hover_color", _get_button_font_color(variant, false))
+	button.add_theme_color_override("font_pressed_color", _get_button_font_color(variant, true))
+	button.add_theme_color_override("font_disabled_color", Color(0.5, 0.5, 0.5, 0.9))
+	button.add_theme_font_size_override("font_size", 12 if compact else 13)
+	button.add_theme_constant_override("h_separation", 4)
+	button.add_theme_constant_override("outline_size", 1)
+	button.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.08))
+	button.custom_minimum_size = Vector2(button.custom_minimum_size.x, 32 if compact else 36)
+
+
+static func _make_button_style(variant: String, state: String) -> StyleBoxFlat:
+	var palette := _get_button_palette(variant, state)
+	var style := StyleBoxFlat.new()
+	style.bg_color = palette["fill"]
+	style.border_color = palette["border"]
+	style.border_width_left = 2
+	style.border_width_top = 2
+	style.border_width_right = 2
+	style.border_width_bottom = 3 if state == "pressed" else 2
+	style.corner_radius_top_left = 12
+	style.corner_radius_top_right = 12
+	style.corner_radius_bottom_right = 12
+	style.corner_radius_bottom_left = 12
+	style.shadow_color = palette["shadow"]
+	style.shadow_size = 5 if state != "pressed" else 2
+	style.shadow_offset = Vector2(0, 2 if state != "pressed" else 1)
+	style.expand_margin_left = 2
+	style.expand_margin_top = 1
+	style.expand_margin_right = 2
+	style.expand_margin_bottom = 3
+	style.content_margin_left = 14
+	style.content_margin_top = 8
+	style.content_margin_right = 14
+	style.content_margin_bottom = 8
+	style.set("skew", Vector2(0.06, 0.0))
+	return style
+
+
+static func _get_button_palette(variant: String, state: String) -> Dictionary:
+	var palettes := {
+		"gold": {
+			"normal": {"fill": Color("e0aa1a"), "border": Color("ffd861"), "shadow": Color(0.35, 0.18, 0.02, 0.45)},
+			"hover": {"fill": Color("f7c92a"), "border": Color("fff0a0"), "shadow": Color(0.48, 0.24, 0.04, 0.55)},
+			"pressed": {"fill": Color("c68810"), "border": Color("ffcf59"), "shadow": Color(0.24, 0.12, 0.02, 0.35)},
+			"disabled": {"fill": Color("6d5c2e"), "border": Color("99844a"), "shadow": Color(0, 0, 0, 0.18)},
+		},
+		"silver": {
+			"normal": {"fill": Color("b5c1cd"), "border": Color("eef6ff"), "shadow": Color(0.08, 0.11, 0.16, 0.4)},
+			"hover": {"fill": Color("cdd8e2"), "border": Color("ffffff"), "shadow": Color(0.1, 0.14, 0.2, 0.5)},
+			"pressed": {"fill": Color("96a3af"), "border": Color("dbe4ee"), "shadow": Color(0.06, 0.08, 0.12, 0.28)},
+			"disabled": {"fill": Color("59616a"), "border": Color("7a848e"), "shadow": Color(0, 0, 0, 0.18)},
+		},
+		"amber": {
+			"normal": {"fill": Color("b86a17"), "border": Color("f0b35a"), "shadow": Color(0.26, 0.09, 0.01, 0.45)},
+			"hover": {"fill": Color("cf7c1b"), "border": Color("ffd18f"), "shadow": Color(0.32, 0.12, 0.02, 0.52)},
+			"pressed": {"fill": Color("99530f"), "border": Color("e4a64f"), "shadow": Color(0.19, 0.07, 0.01, 0.32)},
+			"disabled": {"fill": Color("5f4122"), "border": Color("82603c"), "shadow": Color(0, 0, 0, 0.18)},
+		},
+	}
+	var variant_palettes: Dictionary = palettes.get(variant, palettes["gold"])
+	return variant_palettes.get(state, variant_palettes["normal"])
+
+
+static func _get_button_font_color(variant: String, pressed: bool) -> Color:
+	match variant:
+		"silver":
+			return Color("263140") if not pressed else Color("1a2230")
+		_:
+			return Color("fff9dc") if not pressed else Color("fff1bf")
+
+
 static func build_toast_layer(root: Control) -> Dictionary:
 	var toast_anchor := CenterContainer.new()
 	toast_anchor.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
@@ -191,6 +269,7 @@ static func build_gatherables_panel(
 
 			var queue_button := Button.new()
 			queue_button.custom_minimum_size = Vector2(122, 0)
+			_apply_fancy_button(queue_button, "gold")
 			queue_button.pressed.connect(queue_pickable_handler.bind(resource_id))
 			top_row.add_child(queue_button)
 
@@ -276,28 +355,33 @@ static func build_queue_panel(
 	var remove_queue_button := Button.new()
 	remove_queue_button.text = "Remove selected"
 	remove_queue_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_apply_fancy_button(remove_queue_button, "silver", true)
 	remove_queue_button.pressed.connect(remove_queue_handler)
 	queue_action_row.add_child(remove_queue_button)
 
 	var move_up_queue_button := Button.new()
 	move_up_queue_button.text = "Move up"
 	move_up_queue_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_apply_fancy_button(move_up_queue_button, "silver", true)
 	move_up_queue_button.pressed.connect(move_queue_up_handler)
 	queue_action_row.add_child(move_up_queue_button)
 
 	var move_down_queue_button := Button.new()
 	move_down_queue_button.text = "Move down"
 	move_down_queue_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_apply_fancy_button(move_down_queue_button, "silver", true)
 	move_down_queue_button.pressed.connect(move_queue_down_handler)
 	queue_action_row.add_child(move_down_queue_button)
 
 	var clear_queue_button := Button.new()
 	clear_queue_button.text = "Clear queued actions"
+	_apply_fancy_button(clear_queue_button, "amber")
 	clear_queue_button.pressed.connect(clear_queue_handler)
 	queue_box.add_child(clear_queue_button)
 
 	var pause_queue_button := Button.new()
 	pause_queue_button.text = "Pause queue"
+	_apply_fancy_button(pause_queue_button, "silver")
 	pause_queue_button.pressed.connect(pause_queue_handler)
 	queue_box.add_child(pause_queue_button)
 
@@ -361,6 +445,7 @@ static func build_tools_panel(
 		tool_row.add_child(detail_label)
 
 		var button := Button.new()
+		_apply_fancy_button(button, "gold")
 		button.pressed.connect(craft_tool_handler.bind(tool_id))
 		tool_row.add_child(button)
 
@@ -423,6 +508,7 @@ static func build_craftables_panel(
 		craftable_row.add_child(detail_label)
 
 		var button := Button.new()
+		_apply_fancy_button(button, "gold")
 		button.pressed.connect(craft_item_handler.bind(craftable_id))
 		craftable_row.add_child(button)
 
@@ -517,6 +603,7 @@ static func build_processing_panel(
 
 		var toggle_button := Button.new()
 		toggle_button.custom_minimum_size = Vector2(90, 0)
+		_apply_fancy_button(toggle_button, "silver", true)
 		toggle_button.pressed.connect(toggle_station_handler.bind(craftable_id))
 		station_header.add_child(toggle_button)
 
@@ -544,6 +631,7 @@ static func build_processing_panel(
 				var fuel_button := Button.new()
 				fuel_button.text = String(burnable_item["name"])
 				fuel_button.custom_minimum_size = Vector2(72, 0)
+				_apply_fancy_button(fuel_button, "amber", true)
 				fuel_button.pressed.connect(queue_station_fuel_handler.bind(craftable_id, fuel_item_id))
 				fuel_buttons_row.add_child(fuel_button)
 				fuel_buttons[fuel_item_id] = fuel_button
@@ -584,6 +672,7 @@ static func build_processing_panel(
 
 			var button := Button.new()
 			button.custom_minimum_size = Vector2(122, 0)
+			_apply_fancy_button(button, "gold")
 			button.pressed.connect(queue_recipe_handler.bind(recipe_id))
 			row_box.add_child(button)
 
@@ -666,6 +755,7 @@ static func build_upgrades_panel(
 		var button := Button.new()
 		button.custom_minimum_size = Vector2(118, 0)
 		button.text = String(entry["button_text"])
+		_apply_fancy_button(button, "gold")
 		button.pressed.connect(buy_upgrade_handler.bind(upgrade_id))
 		row_box.add_child(button)
 
