@@ -138,7 +138,9 @@ static func build_pipeline_end_state(initial_state: Dictionary, current_action: 
 		apply_action_completion_to_state(state, current_action, rules)
 
 	for queued_action in action_queue:
-		simulate_action_in_state(state, queued_action, rules)
+		var result := simulate_action_in_state(state, queued_action, rules)
+		if not result["ran"]:
+			break
 
 	return state
 

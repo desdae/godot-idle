@@ -1,28 +1,42 @@
 extends RefCounted
 
-const GameActions = preload("res://scripts/game_actions.gd")
-
-
-static func refresh_queue_list(queue_list: ItemList, current_action: Dictionary, action_queue: Array, data: Dictionary) -> void:
+static func refresh_queue_list(queue_list: ItemList, queue_entry_views: Array, selected_queue_index: int) -> int:
 	queue_list.clear()
-	if not current_action.is_empty():
-		queue_list.add_item("Now: %s" % GameActions.get_action_queue_label(current_action, data))
+	for entry_view in queue_entry_views:
+		var item_index := queue_list.item_count
+		queue_list.add_item(String(entry_view["text"]))
+		queue_list.set_item_tooltip(item_index, String(entry_view.get("tooltip", "")))
+		queue_list.set_item_custom_fg_color(item_index, entry_view.get("color", Color(0.85, 0.85, 0.85, 1.0)))
 
-	for index in range(action_queue.size()):
-		var queued_action: Dictionary = action_queue[index]
-		queue_list.add_item("%d. %s" % [index + 1, GameActions.get_action_queue_label(queued_action, data)])
+	if queue_entry_views.is_empty():
+		return -1
+
+	var next_selected_index := selected_queue_index
+	if next_selected_index >= queue_entry_views.size():
+		next_selected_index = queue_entry_views.size() - 1
+	if next_selected_index >= 0:
+		queue_list.select(next_selected_index)
+
+	return next_selected_index
 
 
 static func refresh_queue_controls(
 	clear_queue_button: Button,
 	pause_queue_button: Button,
+	remove_queue_button: Button,
+	move_up_queue_button: Button,
+	move_down_queue_button: Button,
 	is_queue_paused: bool,
 	current_action: Dictionary,
-	action_queue: Array
+	action_queue: Array,
+	selected_queue_index: int
 ) -> void:
 	clear_queue_button.disabled = action_queue.is_empty()
 	pause_queue_button.text = "Resume queue" if is_queue_paused else "Pause queue"
 	pause_queue_button.disabled = current_action.is_empty() and action_queue.is_empty()
+	remove_queue_button.disabled = selected_queue_index < 0 or selected_queue_index >= action_queue.size()
+	move_up_queue_button.disabled = selected_queue_index <= 0 or selected_queue_index >= action_queue.size()
+	move_down_queue_button.disabled = selected_queue_index < 0 or selected_queue_index >= action_queue.size() - 1
 
 
 static func apply_resource_card(card: Dictionary, view: Dictionary) -> void:
@@ -72,6 +86,8 @@ static func apply_tool_card(card: Dictionary, view: Dictionary) -> void:
 	detail_label.text = view["detail_text"]
 	button.text = view["button_text"]
 	button.disabled = view["button_disabled"]
+	button.tooltip_text = view["button_tooltip"]
+	button.set_meta("base_text", view["button_text"])
 
 
 static func apply_craftable_card(card: Dictionary, view: Dictionary) -> void:
@@ -82,6 +98,8 @@ static func apply_craftable_card(card: Dictionary, view: Dictionary) -> void:
 	detail_label.text = view["detail_text"]
 	button.text = view["button_text"]
 	button.disabled = view["button_disabled"]
+	button.tooltip_text = view["button_tooltip"]
+	button.set_meta("base_text", view["button_text"])
 
 
 static func apply_recipe_card(card: Dictionary, view: Dictionary) -> void:

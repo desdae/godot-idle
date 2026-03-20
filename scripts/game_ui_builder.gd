@@ -221,7 +221,11 @@ static func build_gatherables_panel(
 static func build_queue_panel(
 	parent: VBoxContainer,
 	clear_queue_handler: Callable,
-	pause_queue_handler: Callable
+	pause_queue_handler: Callable,
+	remove_queue_handler: Callable,
+	move_queue_up_handler: Callable,
+	move_queue_down_handler: Callable,
+	queue_item_selected_handler: Callable
 ) -> Dictionary:
 	var queue_panel := PanelContainer.new()
 	queue_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -260,7 +264,32 @@ static func build_queue_panel(
 	queue_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	queue_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	queue_list.custom_minimum_size = Vector2(0, 140)
+	queue_list.select_mode = ItemList.SELECT_SINGLE
+	if not queue_item_selected_handler.is_null():
+		queue_list.item_selected.connect(queue_item_selected_handler)
 	queue_box.add_child(queue_list)
+
+	var queue_action_row := HBoxContainer.new()
+	queue_action_row.add_theme_constant_override("separation", 6)
+	queue_box.add_child(queue_action_row)
+
+	var remove_queue_button := Button.new()
+	remove_queue_button.text = "Remove selected"
+	remove_queue_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	remove_queue_button.pressed.connect(remove_queue_handler)
+	queue_action_row.add_child(remove_queue_button)
+
+	var move_up_queue_button := Button.new()
+	move_up_queue_button.text = "Move up"
+	move_up_queue_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	move_up_queue_button.pressed.connect(move_queue_up_handler)
+	queue_action_row.add_child(move_up_queue_button)
+
+	var move_down_queue_button := Button.new()
+	move_down_queue_button.text = "Move down"
+	move_down_queue_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	move_down_queue_button.pressed.connect(move_queue_down_handler)
+	queue_action_row.add_child(move_down_queue_button)
 
 	var clear_queue_button := Button.new()
 	clear_queue_button.text = "Clear queued actions"
@@ -277,6 +306,9 @@ static func build_queue_panel(
 		"queue_summary_label": queue_summary_label,
 		"queue_time_left_label": queue_time_left_label,
 		"queue_list": queue_list,
+		"remove_queue_button": remove_queue_button,
+		"move_up_queue_button": move_up_queue_button,
+		"move_down_queue_button": move_down_queue_button,
 		"clear_queue_button": clear_queue_button,
 		"pause_queue_button": pause_queue_button,
 	}

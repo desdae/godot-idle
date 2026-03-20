@@ -45,6 +45,7 @@ static func try_queue_pickable(
 
 static func try_queue_tool(
 	tool_id: String,
+	requested_amount: int,
 	action_queue: Array,
 	current_action: Dictionary,
 	upgrade_levels: Dictionary,
@@ -65,12 +66,20 @@ static func try_queue_tool(
 	if not GameQueries.can_queue_from_block_reason(block_reason):
 		return false
 
-	action_queue.append(GameActions.make_craft_tool_action(tool_id))
-	return true
+	return GameQueue.queue_action_count(
+		action_queue,
+		GameActions.make_craft_tool_action(tool_id),
+		requested_amount,
+		queue_capacity,
+		GameActions.copy_action(current_action),
+		initial_state,
+		rules
+	)
 
 
 static func try_queue_craftable(
 	craftable_id: String,
+	requested_amount: int,
 	action_queue: Array,
 	current_action: Dictionary,
 	crafted_items: Dictionary,
@@ -83,6 +92,7 @@ static func try_queue_craftable(
 	if GameState.get_crafted_item_count(crafted_items, craftable_id) > 0:
 		return try_queue_craftable_upgrade(
 			craftable_id,
+			requested_amount,
 			action_queue,
 			current_action,
 			upgrade_levels,
@@ -104,12 +114,20 @@ static func try_queue_craftable(
 	if not GameQueries.can_queue_from_block_reason(block_reason):
 		return false
 
-	action_queue.append(GameActions.make_craft_item_action(craftable_id))
-	return true
+	return GameQueue.queue_action_count(
+		action_queue,
+		GameActions.make_craft_item_action(craftable_id),
+		requested_amount,
+		queue_capacity,
+		GameActions.copy_action(current_action),
+		initial_state,
+		rules
+	)
 
 
 static func try_queue_craftable_upgrade(
 	craftable_id: String,
+	requested_amount: int,
 	action_queue: Array,
 	current_action: Dictionary,
 	upgrade_levels: Dictionary,
@@ -130,8 +148,15 @@ static func try_queue_craftable_upgrade(
 	if not GameQueries.can_queue_from_block_reason(block_reason):
 		return false
 
-	action_queue.append(GameActions.make_upgrade_craftable_action(craftable_id))
-	return true
+	return GameQueue.queue_action_count(
+		action_queue,
+		GameActions.make_upgrade_craftable_action(craftable_id),
+		requested_amount,
+		queue_capacity,
+		GameActions.copy_action(current_action),
+		initial_state,
+		rules
+	)
 
 
 static func try_queue_recipe(
@@ -229,3 +254,28 @@ static func toggle_queue_pause(is_queue_paused: bool) -> bool:
 static func queue_action(action_queue: Array, action: Dictionary) -> bool:
 	action_queue.append(action.duplicate(true))
 	return true
+
+
+static func remove_queue_action(action_queue: Array, index: int) -> int:
+	if index < 0 or index >= action_queue.size():
+		return index
+
+	action_queue.remove_at(index)
+	if action_queue.is_empty():
+		return -1
+
+	return mini(index, action_queue.size() - 1)
+
+
+static func move_queue_action(action_queue: Array, from_index: int, to_index: int) -> int:
+	if from_index < 0 or from_index >= action_queue.size():
+		return from_index
+
+	var clamped_to_index := clampi(to_index, 0, action_queue.size() - 1)
+	if clamped_to_index == from_index:
+		return from_index
+
+	var action: Dictionary = action_queue[from_index]
+	action_queue.remove_at(from_index)
+	action_queue.insert(clamped_to_index, action)
+	return clamped_to_index

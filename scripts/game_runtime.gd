@@ -6,27 +6,32 @@ const GameRules = preload("res://scripts/game_rules.gd")
 
 static func start_next_action(action_queue: Array, initial_state: Dictionary, rules: Dictionary) -> Dictionary:
 	var remaining_queue: Array = action_queue.duplicate(true)
-
-	while not remaining_queue.is_empty():
-		var next_action: Dictionary = remaining_queue.pop_front()
-		var live_state := initial_state.duplicate(true)
-		if GameRules.get_action_block_reason_in_state(next_action, live_state, rules) != "":
-			continue
-
-		var duration := GameRules.get_action_duration_for_state(next_action, live_state, rules)
-		GameRules.apply_action_start_to_state(live_state, next_action, rules)
+	if remaining_queue.is_empty():
 		return {
-			"started": true,
+			"started": false,
 			"queue": remaining_queue,
-			"state": live_state,
-			"current_action": build_current_action(next_action, duration),
+			"state": initial_state.duplicate(true),
+			"current_action": {},
 		}
 
+	var next_action: Dictionary = remaining_queue[0]
+	var live_state := initial_state.duplicate(true)
+	if GameRules.get_action_block_reason_in_state(next_action, live_state, rules) != "":
+		return {
+			"started": false,
+			"queue": remaining_queue,
+			"state": initial_state.duplicate(true),
+			"current_action": {},
+		}
+
+	remaining_queue.pop_front()
+	var duration := GameRules.get_action_duration_for_state(next_action, live_state, rules)
+	GameRules.apply_action_start_to_state(live_state, next_action, rules)
 	return {
-		"started": false,
+		"started": true,
 		"queue": remaining_queue,
-		"state": initial_state.duplicate(true),
-		"current_action": {},
+		"state": live_state,
+		"current_action": build_current_action(next_action, duration),
 	}
 
 

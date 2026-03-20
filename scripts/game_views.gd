@@ -146,7 +146,8 @@ static func get_tool_card_view(
 	current_action: Dictionary,
 	current_action_time_left: float,
 	is_crafting_queued: bool,
-	block_reason: String
+	block_reason: String,
+	queue_tooltip: String
 ) -> Dictionary:
 	var durability := int(tools[tool_id]["durability"])
 	var max_durability := GameData.get_tool_max_durability(tool_id, data)
@@ -182,6 +183,7 @@ static func get_tool_card_view(
 		"detail_text": detail_text,
 		"button_text": button_text,
 		"button_disabled": is_crafting_now or is_crafting_queued or block_reason != "",
+		"button_tooltip": queue_tooltip if not is_crafting_now and not is_crafting_queued and block_reason == "" else "",
 	}
 
 
@@ -194,7 +196,8 @@ static func get_craftable_card_view(
 	current_action: Dictionary,
 	current_action_time_left: float,
 	block_reason: String,
-	upgrade_block_reason: String
+	upgrade_block_reason: String,
+	queue_tooltip: String
 ) -> Dictionary:
 	var owned_count := int(crafted_items.get(craftable_id, 0))
 	var station_level := _get_processing_station_level(craftable_id, crafted_items, craftable_upgrade_levels)
@@ -254,6 +257,7 @@ static func get_craftable_card_view(
 		"detail_text": detail_text,
 		"button_text": button_text,
 		"button_disabled": is_crafting_now or is_upgrading_now or (upgrade_block_reason != "" if can_upgrade else block_reason != ""),
+		"button_tooltip": queue_tooltip if not is_crafting_now and not is_upgrading_now and (upgrade_block_reason == "" if can_upgrade else block_reason == "") else "",
 	}
 
 
@@ -323,7 +327,9 @@ static func get_runtime_status_view(
 	action_queue_size: int,
 	queue_capacity: int,
 	estimated_time_left: float,
-	data: Dictionary
+	data: Dictionary,
+	blocked_label: String = "",
+	blocked_reason: String = ""
 ) -> Dictionary:
 	var active_count := 0
 	if not current_action.is_empty():
@@ -344,17 +350,30 @@ static func get_runtime_status_view(
 			clampi(percent, 0, 100),
 			GamePresentation.format_seconds(time_left),
 		]
+	elif blocked_label != "" and not is_queue_paused:
+		current_action_text = "Current action: Blocked by %s (%s)" % [blocked_label, blocked_reason]
 
 	var queue_state_text := "Paused" if is_queue_paused else "Running"
+	if blocked_label != "" and current_action.is_empty() and not is_queue_paused:
+		queue_state_text = "Blocked"
+
+	var queue_time_label := "Total time left: %s" % GamePresentation.format_seconds(estimated_time_left)
+	if blocked_label != "":
+		queue_time_label = "Time until block: %s" % GamePresentation.format_seconds(estimated_time_left)
+
+	var queue_summary_text := "Pipeline: %s | %d active, %d queued / %d queued slots" % [
+		queue_state_text,
+		active_count,
+		action_queue_size,
+		queue_capacity,
+	]
+	if blocked_label != "":
+		queue_summary_text += " | %s blocked" % blocked_label
+
 	return {
 		"current_action_text": current_action_text,
-		"queue_summary_text": "Pipeline: %s | %d active, %d queued / %d queued slots" % [
-			queue_state_text,
-			active_count,
-			action_queue_size,
-			queue_capacity,
-		],
-		"queue_time_left_text": "Total time left: %s" % GamePresentation.format_seconds(estimated_time_left),
+		"queue_summary_text": queue_summary_text,
+		"queue_time_left_text": queue_time_label,
 	}
 
 
@@ -375,6 +394,45 @@ static func get_hover_queue_button_text(
 		return "+5" if compact else "Queue +5"
 
 	return base_text
+
+
+static func get_hover_batch_button_text(
+	base_text: String,
+	is_hovered: bool,
+	is_ctrl_pressed: bool,
+	is_shift_pressed: bool,
+	free_queue_slots: int
+) -> String:
+	if not is_hovered:
+		return base_text
+
+	if is_ctrl_pressed:
+		return "%s x%d" % [base_text, free_queue_slots]
+	if is_shift_pressed:
+		return "%s x5" % base_text
+
+	return base_text
+
+
+static func get_queue_entry_view(position: int, label: String, block_reason: String, is_waiting: bool) -> Dictionary:
+	var text := "%d. %s" % [position + 1, label]
+	var tooltip := label
+	var color := Color(0.85, 0.85, 0.85, 1.0)
+
+	if block_reason != "":
+		text += "  [Blocked: %s]" % block_reason
+		tooltip = "Blocked until fixed: %s" % block_reason
+		color = Color(1.0, 0.48, 0.48, 1.0)
+	elif is_waiting:
+		text += "  [Waiting]"
+		tooltip = "Waiting for an earlier blocked queue step."
+		color = Color(0.72, 0.72, 0.72, 1.0)
+
+	return {
+		"text": text,
+		"tooltip": tooltip,
+		"color": color,
+	}
 
 
 static func get_gather_progress_value(resource_id: String, current_action: Dictionary) -> float:

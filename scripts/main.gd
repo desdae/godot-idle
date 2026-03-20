@@ -62,6 +62,9 @@ var current_action_label: Label
 var queue_summary_label: Label
 var queue_time_left_label: Label
 var queue_list: ItemList
+var remove_queue_button: Button
+var move_up_queue_button: Button
+var move_down_queue_button: Button
 var clear_queue_button: Button
 var pause_queue_button: Button
 var skill_context_label: Label
@@ -80,6 +83,7 @@ var recipe_cards := {}
 var item_labels := {}
 var processing_station_cards := {}
 var processing_station_expanded := {}
+var selected_queue_index := -1
 
 
 func _ready() -> void:
@@ -245,6 +249,7 @@ func _initialize_state() -> void:
 	for upgrade_id in upgrade_order:
 		upgrade_levels[upgrade_id] = 0
 	action_queue.clear()
+	selected_queue_index = -1
 	current_action.clear()
 	current_action_completion_pending = false
 	is_queue_paused = false
@@ -314,8 +319,12 @@ func _build_ui_controller_context() -> Dictionary:
 		"queue_summary_label": queue_summary_label,
 		"queue_time_left_label": queue_time_left_label,
 		"queue_list": queue_list,
+		"remove_queue_button": remove_queue_button,
+		"move_up_queue_button": move_up_queue_button,
+		"move_down_queue_button": move_down_queue_button,
 		"clear_queue_button": clear_queue_button,
 		"pause_queue_button": pause_queue_button,
+		"selected_queue_index": selected_queue_index,
 		"skill_context_label": skill_context_label,
 		"main_tabs": main_tabs,
 		"gatherable_skill_tabs": gatherable_skill_tabs,
@@ -527,12 +536,19 @@ func _build_queue_panel(parent: VBoxContainer) -> void:
 	var refs := GameUiBuilder.build_queue_panel(
 		parent,
 		Callable(self, "_clear_queue"),
-		Callable(self, "_toggle_queue_pause")
+		Callable(self, "_toggle_queue_pause"),
+		Callable(self, "_remove_selected_queue_action"),
+		Callable(self, "_move_selected_queue_action_up"),
+		Callable(self, "_move_selected_queue_action_down"),
+		Callable(self, "_on_queue_item_selected")
 	)
 	current_action_label = refs["current_action_label"]
 	queue_summary_label = refs["queue_summary_label"]
 	queue_time_left_label = refs["queue_time_left_label"]
 	queue_list = refs["queue_list"]
+	remove_queue_button = refs["remove_queue_button"]
+	move_up_queue_button = refs["move_up_queue_button"]
+	move_down_queue_button = refs["move_down_queue_button"]
 	clear_queue_button = refs["clear_queue_button"]
 	pause_queue_button = refs["pause_queue_button"]
 
@@ -665,6 +681,7 @@ func _queue_pickable(resource_id: String) -> void:
 func _craft_tool(tool_id: String) -> void:
 	if not GameCommands.try_queue_tool(
 		tool_id,
+		_get_requested_queue_amount(),
 		action_queue,
 		current_action,
 		upgrade_levels,
@@ -683,6 +700,7 @@ func _craft_tool(tool_id: String) -> void:
 func _craft_item(craftable_id: String) -> void:
 	if not GameCommands.try_queue_craftable(
 		craftable_id,
+		_get_requested_queue_amount(),
 		action_queue,
 		current_action,
 		crafted_items,
@@ -770,6 +788,7 @@ func _buy_upgrade(upgrade_id: String) -> void:
 
 func _clear_queue() -> void:
 	GameCommands.clear_queue(action_queue)
+	selected_queue_index = -1
 	_refresh_ui()
 
 
@@ -778,8 +797,29 @@ func _toggle_queue_pause() -> void:
 	_refresh_ui()
 
 
+func _remove_selected_queue_action() -> void:
+	selected_queue_index = GameCommands.remove_queue_action(action_queue, selected_queue_index)
+	_refresh_ui()
+
+
+func _move_selected_queue_action_up() -> void:
+	selected_queue_index = GameCommands.move_queue_action(action_queue, selected_queue_index, selected_queue_index - 1)
+	_refresh_ui()
+
+
+func _move_selected_queue_action_down() -> void:
+	selected_queue_index = GameCommands.move_queue_action(action_queue, selected_queue_index, selected_queue_index + 1)
+	_refresh_ui()
+
+
+func _on_queue_item_selected(index: int) -> void:
+	selected_queue_index = index
+	GameUiController.refresh_queue_controls_only(_build_ui_controller_context())
+
+
 func _start_next_action() -> void:
 	current_action_completion_pending = false
+	var had_current_action := not current_action.is_empty()
 	var runtime_result := GameRuntime.start_next_action(
 		action_queue,
 		_create_simulation_state(),
@@ -787,13 +827,16 @@ func _start_next_action() -> void:
 	)
 	action_queue = runtime_result["queue"]
 	if bool(runtime_result["started"]):
+		if selected_queue_index >= 0:
+			selected_queue_index = maxi(-1, selected_queue_index - 1)
 		_apply_live_state(runtime_result["state"])
 		current_action = runtime_result["current_action"]
 		_refresh_ui()
 		return
 
-	current_action.clear()
-	_refresh_ui()
+	if had_current_action:
+		current_action.clear()
+		_refresh_ui()
 
 
 func _complete_current_action() -> void:
@@ -823,7 +866,7 @@ func _apply_live_state(state: Dictionary) -> void:
 
 
 func _refresh_ui() -> void:
-	GameUiController.refresh_ui(_build_ui_controller_context())
+	selected_queue_index = GameUiController.refresh_ui(_build_ui_controller_context())
 
 
 func _get_requested_queue_amount() -> int:

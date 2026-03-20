@@ -1,32 +1,52 @@
 extends RefCounted
 
+const GameActions = preload("res://scripts/game_actions.gd")
 const GameData = preload("res://scripts/game_data.gd")
 const GameDomain = preload("res://scripts/game_domain.gd")
 const GameEconomy = preload("res://scripts/game_economy.gd")
 const GamePresentation = preload("res://scripts/game_presentation.gd")
 const GameQueries = preload("res://scripts/game_queries.gd")
+const GameRules = preload("res://scripts/game_rules.gd")
 const GameState = preload("res://scripts/game_state.gd")
 const GameUiRefresh = preload("res://scripts/game_ui_refresh.gd")
 const GameViews = preload("res://scripts/game_views.gd")
 
 
-static func refresh_ui(game: Dictionary) -> void:
+static func refresh_ui(game: Dictionary) -> int:
+	var queue_preview := _build_queue_preview(game)
 	refresh_skill_section(game)
-	GameUiRefresh.refresh_queue_list(game["queue_list"], game["current_action"], game["action_queue"], game["data"])
-	GameUiRefresh.refresh_queue_controls(
-		game["clear_queue_button"],
-		game["pause_queue_button"],
-		bool(game["is_queue_paused"]),
-		game["current_action"],
-		game["action_queue"]
+	var selected_queue_index := GameUiRefresh.refresh_queue_list(
+		game["queue_list"],
+		queue_preview["entry_views"],
+		int(game["selected_queue_index"])
 	)
+	_refresh_queue_controls(game, selected_queue_index)
 	_refresh_tool_panel(game)
 	_refresh_craftable_panel(game)
 	_refresh_processing_panel(game)
 	_refresh_item_summary(game)
 	_refresh_resource_cards(game)
 	_refresh_upgrade_cards(game)
-	refresh_runtime_status(game)
+	refresh_runtime_status(game, queue_preview)
+	return selected_queue_index
+
+
+static func refresh_queue_controls_only(game: Dictionary) -> void:
+	_refresh_queue_controls(game, int(game["selected_queue_index"]))
+
+
+static func _refresh_queue_controls(game: Dictionary, selected_queue_index: int) -> void:
+	GameUiRefresh.refresh_queue_controls(
+		game["clear_queue_button"],
+		game["pause_queue_button"],
+		game["remove_queue_button"],
+		game["move_up_queue_button"],
+		game["move_down_queue_button"],
+		bool(game["is_queue_paused"]),
+		game["current_action"],
+		game["action_queue"],
+		selected_queue_index
+	)
 
 
 static func refresh_skill_section(game: Dictionary) -> void:
@@ -44,26 +64,21 @@ static func refresh_skill_section(game: Dictionary) -> void:
 		skill_context_label.text = GameViews.get_skill_context_text(active_skill_id, data, skill_states)
 
 
-static func refresh_runtime_status(game: Dictionary) -> void:
+static func refresh_runtime_status(game: Dictionary, queue_preview: Dictionary = {}) -> void:
 	var current_action: Dictionary = game["current_action"]
-	var action_queue: Array = game["action_queue"]
-	var simulation_state: Dictionary = game["simulation_state"]
-	var rules_context: Dictionary = game["rules"]
-	var queue_capacity := _get_queue_capacity(game)
-	var estimated_time_left := GameQueries.estimate_queue_time_left(
-		current_action,
-		action_queue,
-		simulation_state,
-		GameState.get_current_action_time_left(current_action),
-		rules_context
-	)
+	if queue_preview.is_empty():
+		queue_preview = _build_queue_preview(game)
+
+	var blocked_entry: Dictionary = queue_preview.get("blocked_entry", {})
 	var view := GameViews.get_runtime_status_view(
 		current_action,
 		bool(game["is_queue_paused"]),
-		action_queue.size(),
-		queue_capacity,
-		estimated_time_left,
-		game["data"]
+		game["action_queue"].size(),
+		_get_queue_capacity(game),
+		float(queue_preview.get("time_left", 0.0)),
+		game["data"],
+		String(blocked_entry.get("label", "")),
+		String(blocked_entry.get("block_reason", ""))
 	)
 	GameUiRefresh.apply_runtime_status(
 		game["current_action_label"],
@@ -112,6 +127,36 @@ static func refresh_queue_button_hover_previews(game: Dictionary) -> void:
 		recipe_button.text = GameViews.get_hover_queue_button_text(
 			recipe_base_text,
 			recipe_button.is_hovered(),
+			is_ctrl_pressed,
+			is_shift_pressed,
+			free_queue_slots
+		)
+
+	for tool_id in game["tool_order"]:
+		var tool_card: Dictionary = game["tool_cards"][tool_id]
+		var tool_button: Button = tool_card["button"]
+		if tool_button.disabled:
+			continue
+
+		tool_button.tooltip_text = queue_tooltip
+		tool_button.text = GameViews.get_hover_batch_button_text(
+			String(tool_button.get_meta("base_text", tool_button.text)),
+			tool_button.is_hovered(),
+			is_ctrl_pressed,
+			is_shift_pressed,
+			free_queue_slots
+		)
+
+	for craftable_id in game["craftable_order"]:
+		var craftable_card: Dictionary = game["craftable_cards"][craftable_id]
+		var craftable_button: Button = craftable_card["button"]
+		if craftable_button.disabled:
+			continue
+
+		craftable_button.tooltip_text = queue_tooltip
+		craftable_button.text = GameViews.get_hover_batch_button_text(
+			String(craftable_button.get_meta("base_text", craftable_button.text)),
+			craftable_button.is_hovered(),
 			is_ctrl_pressed,
 			is_shift_pressed,
 			free_queue_slots
@@ -218,7 +263,8 @@ static func _refresh_tool_panel(game: Dictionary) -> void:
 				current_action,
 				simulation_state,
 				rules_context
-			)
+			),
+			GamePresentation.get_queue_button_tooltip()
 		)
 		GameUiRefresh.apply_tool_card(game["tool_cards"][tool_id], view)
 
@@ -255,7 +301,8 @@ static func _refresh_craftable_panel(game: Dictionary) -> void:
 				current_action,
 				simulation_state,
 				rules_context
-			)
+			),
+			GamePresentation.get_queue_button_tooltip()
 		)
 		GameUiRefresh.apply_craftable_card(game["craftable_cards"][craftable_id], view)
 
@@ -396,3 +443,46 @@ static func _get_queue_capacity(game: Dictionary) -> int:
 		int(game["base_queue_size"]),
 		int(game["queue_size_per_upgrade"])
 	)
+
+
+static func _build_queue_preview(game: Dictionary) -> Dictionary:
+	var state: Dictionary = game["simulation_state"].duplicate(true)
+	var current_action: Dictionary = game["current_action"]
+	var current_action_time_left := GameState.get_current_action_time_left(current_action)
+	var time_left := 0.0
+	if not current_action.is_empty():
+		time_left += current_action_time_left
+		GameRules.apply_action_completion_to_state(state, current_action, game["rules"])
+
+	var entry_views := []
+	var blocked_entry := {}
+	var found_blocker := false
+	for index in range(game["action_queue"].size()):
+		var queued_action: Dictionary = game["action_queue"][index]
+		var action_label := GameActions.get_action_queue_label(queued_action, game["data"])
+		var block_reason := ""
+		var is_waiting := false
+		if found_blocker:
+			is_waiting = true
+		else:
+			block_reason = GameRules.get_action_block_reason_in_state(queued_action, state, game["rules"])
+			if block_reason != "":
+				found_blocker = true
+				blocked_entry = {
+					"index": index,
+					"label": action_label,
+					"block_reason": block_reason,
+				}
+			else:
+				var duration := GameRules.get_action_duration_for_state(queued_action, state, game["rules"])
+				time_left += duration
+				GameRules.apply_action_start_to_state(state, queued_action, game["rules"])
+				GameRules.apply_action_completion_to_state(state, queued_action, game["rules"])
+
+		entry_views.append(GameViews.get_queue_entry_view(index, action_label, block_reason, is_waiting))
+
+	return {
+		"entry_views": entry_views,
+		"blocked_entry": blocked_entry,
+		"time_left": time_left,
+	}

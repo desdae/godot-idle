@@ -67,8 +67,13 @@ static func estimate_queue_time_left(
 		GameRules.apply_action_completion_to_state(state, current_action, rules)
 
 	for queued_action in action_queue:
-		var result := GameRules.simulate_action_in_state(state, queued_action, rules)
-		if result["ran"]:
-			total_time += result["duration"]
+		var block_reason := GameRules.get_action_block_reason_in_state(queued_action, state, rules)
+		if block_reason != "":
+			break
+
+		var duration := GameRules.get_action_duration_for_state(queued_action, state, rules)
+		GameRules.apply_action_start_to_state(state, queued_action, rules)
+		GameRules.apply_action_completion_to_state(state, queued_action, rules)
+		total_time += duration
 
 	return total_time
