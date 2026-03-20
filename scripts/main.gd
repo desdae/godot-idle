@@ -4,6 +4,7 @@ const GameActions = preload("res://scripts/game_actions.gd")
 const GameData = preload("res://scripts/game_data.gd")
 const GameQueue = preload("res://scripts/game_queue.gd")
 const GameRules = preload("res://scripts/game_rules.gd")
+const GameRuntime = preload("res://scripts/game_runtime.gd")
 
 var game_title := "Idle Gatherer"
 var game_subtitle := "Gather, craft a Stone Axe for Logs, and spend resources on stronger tools, bigger bags, and longer queues."
@@ -1088,26 +1089,15 @@ func _toggle_queue_pause() -> void:
 
 func _start_next_action() -> void:
 	current_action_completion_pending = false
-	while not action_queue.is_empty():
-		var next_action: Dictionary = action_queue.pop_front()
-		var live_state := _create_simulation_state()
-		if _get_action_block_reason_in_state(next_action, live_state) != "":
-			continue
-
-		_apply_action_start_to_state(live_state, next_action)
-		inventory = live_state["inventory"]
-		tools = live_state["tools"]
-		crafted_items = live_state["crafted_items"]
-		craftable_upgrade_levels = live_state["craftable_upgrade_levels"]
-		stored_fuel_units = live_state["stored_fuel_units"]
-		current_action = {
-			"type": _get_action_type(next_action),
-			"id": _get_action_id(next_action),
-			"station_id": String(next_action.get("station_id", "")),
-			"fuel_item_id": String(next_action.get("fuel_item_id", "")),
-			"elapsed": 0.0,
-			"duration": _get_action_duration(next_action),
-		}
+	var runtime_result := GameRuntime.start_next_action(
+		action_queue,
+		_create_simulation_state(),
+		_build_rules_context()
+	)
+	action_queue = runtime_result["queue"]
+	if bool(runtime_result["started"]):
+		_apply_live_state(runtime_result["state"])
+		current_action = runtime_result["current_action"]
 		_refresh_ui()
 		return
 
@@ -1120,47 +1110,25 @@ func _complete_current_action() -> void:
 		return
 
 	current_action_completion_pending = false
-	var action := _action_from_current_action()
-	match _get_action_type(action):
-		"gather":
-			var resource_id := _get_action_id(action)
-			var output_item_id := _get_gather_output_item_id(resource_id)
-			if inventory[output_item_id] < _get_capacity(resource_id):
-				inventory[output_item_id] += 1
-				_gain_skill_exp(_get_resource_skill_id(resource_id), _get_resource_xp(resource_id))
-		"craft_tool":
-			var tool_id := _get_action_id(action)
-			tools[tool_id]["durability"] = _get_tool_max_durability(tool_id)
-			_gain_skill_exp("crafting", _get_tool_craft_xp(tool_id))
-		"craft_item":
-			var craftable_id := _get_action_id(action)
-			crafted_items[craftable_id] += 1
-			_gain_skill_exp("crafting", _get_craftable_craft_xp(craftable_id))
-		"upgrade_craftable":
-			var upgrade_craftable_id := _get_action_id(action)
-			craftable_upgrade_levels[upgrade_craftable_id] += 1
-			_gain_skill_exp("crafting", _get_craftable_craft_xp(upgrade_craftable_id))
-		"process_recipe":
-			var recipe_id := _get_action_id(action)
-			var recipe_outputs := _get_recipe_outputs(recipe_id)
-			for output_id in recipe_outputs.keys():
-				inventory[output_id] += int(recipe_outputs[output_id])
-			_gain_skill_exp(_get_recipe_skill_id(recipe_id), _get_recipe_craft_xp(recipe_id))
-
+	_apply_live_state(
+		GameRuntime.complete_current_action(
+			_action_from_current_action(),
+			_create_simulation_state(),
+			_build_rules_context()
+		)
+	)
 	current_action.clear()
 	_refresh_ui()
 	_start_next_action()
 
 
-func _gain_skill_exp(skill_id: String, amount: int) -> void:
-	var current_state: Dictionary = skill_states[skill_id]
-	var result := _simulate_exp_gain(
-		int(current_state["level"]),
-		int(current_state["exp"]),
-		int(current_state["exp_to_next"]),
-		amount
-	)
-	skill_states[skill_id] = result
+func _apply_live_state(state: Dictionary) -> void:
+	inventory = state["inventory"]
+	tools = state["tools"]
+	crafted_items = state["crafted_items"]
+	craftable_upgrade_levels = state["craftable_upgrade_levels"]
+	stored_fuel_units = state["stored_fuel_units"]
+	skill_states = state["skills"]
 
 
 func _refresh_ui() -> void:
@@ -1731,10 +1699,6 @@ func _estimate_queue_time_left() -> float:
 		_get_current_action_time_left(),
 		_build_rules_context()
 	)
-
-
-func _simulate_exp_gain(level_value: int, exp_value: int, exp_to_next_value: int, amount: int) -> Dictionary:
-	return GameRules.simulate_exp_gain(level_value, exp_value, exp_to_next_value, amount, exp_growth)
 
 
 func _refresh_skill_row(skill_id: String) -> void:
