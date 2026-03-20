@@ -2,6 +2,7 @@ extends Control
 
 const GameActions = preload("res://scripts/game_actions.gd")
 const GameData = preload("res://scripts/game_data.gd")
+const GamePresentation = preload("res://scripts/game_presentation.gd")
 const GameQueue = preload("res://scripts/game_queue.gd")
 const GameRules = preload("res://scripts/game_rules.gd")
 const GameRuntime = preload("res://scripts/game_runtime.gd")
@@ -1644,7 +1645,7 @@ func _refresh_queue_button_hover_previews() -> void:
 
 
 func _get_queue_button_tooltip() -> String:
-	return "Click: queue 1\nShift: queue 5\nCtrl: queue max"
+	return GamePresentation.get_queue_button_tooltip()
 
 
 func _get_requested_queue_amount() -> int:
@@ -2136,32 +2137,14 @@ func _has_queued_action(action_type: String, action_id: String) -> bool:
 
 
 func _get_upgrade_detail(upgrade_id: String) -> String:
-	match upgrade_id:
-		"bag_space":
-			var current_bonus := int(upgrade_levels[upgrade_id]) * bag_capacity_per_upgrade
-			var next_bonus := (int(upgrade_levels[upgrade_id]) + 1) * bag_capacity_per_upgrade
-			return "Bag bonus +%d -> +%d" % [
-				current_bonus,
-				next_bonus,
-			]
-		"tooling":
-			var current_multiplier := pow(speed_upgrade_multiplier, int(upgrade_levels[upgrade_id]))
-			var next_multiplier := pow(speed_upgrade_multiplier, int(upgrade_levels[upgrade_id]) + 1)
-			var current_reduction := int(round((1.0 - current_multiplier) * 100.0))
-			var next_reduction := int(round((1.0 - next_multiplier) * 100.0))
-			return "Gather speed +%d%% -> +%d%%" % [
-				current_reduction,
-				next_reduction,
-			]
-		"queue_slots":
-			var current_capacity := _get_queue_capacity()
-			var next_capacity := current_capacity + queue_size_per_upgrade
-			return "Queue slots %d -> %d" % [
-				current_capacity,
-				next_capacity,
-			]
-		_:
-			return ""
+	return GamePresentation.get_upgrade_detail(
+		upgrade_id,
+		upgrade_levels,
+		bag_capacity_per_upgrade,
+		speed_upgrade_multiplier,
+		queue_size_per_upgrade,
+		base_queue_size
+	)
 
 
 func _get_upgrade_cost(upgrade_id: String) -> Dictionary:
@@ -2292,17 +2275,12 @@ func _get_gather_resource_for_item(item_id: String) -> String:
 
 
 func _get_auto_queue_requirement_message(resource_id: String, block_reason: String) -> String:
-	var item_name := _get_resource_name(_get_gather_output_item_id(resource_id))
-	if block_reason == "Queue full":
-		return "Queue is full."
-	if block_reason == "Full at end of queue":
-		return "%s storage will be full at the end of the queue." % item_name
-	if block_reason == _get_resource_unlock_requirement_text(resource_id):
-		return block_reason
-	if block_reason.begins_with("Need "):
-		return "%s requires %s." % [item_name, block_reason.trim_prefix("Need ")]
-
-	return "Can't auto-queue %s: %s" % [item_name, block_reason]
+	return GamePresentation.get_auto_queue_requirement_message(
+		resource_id,
+		block_reason,
+		_build_data_context(),
+		_get_resource_unlock_requirement_text(resource_id)
+	)
 
 
 func _show_toast(message: String, duration: float = 2.6) -> void:
@@ -2329,78 +2307,27 @@ func _create_resource_navigation_rich_label(font_size: int) -> RichTextLabel:
 
 
 func _format_cost(cost: Dictionary) -> String:
-	var parts: Array[String] = []
-	for resource_id in _get_inventory_item_order():
-		if not cost.has(resource_id):
-			continue
-
-		parts.append("%d %s" % [int(cost[resource_id]), _get_resource_name(resource_id)])
-
-	if parts.is_empty():
-		return "Free"
-
-	var result := ""
-	for index in range(parts.size()):
-		if index > 0:
-			result += ", "
-		result += parts[index]
-
-	return result
+	return GamePresentation.format_cost(cost, _build_data_context())
 
 
 func _format_recipe_detail_rich_text(duration: float, xp: int, cost: Dictionary, use_text: String) -> String:
-	var detail := "%.1fs craft | +%d XP | Cost: %s" % [
-		duration,
-		xp,
-		_format_cost_markup(cost),
-	]
-	if use_text != "":
-		detail += " | %s" % use_text
-
-	return detail
+	return GamePresentation.format_recipe_detail_rich_text(duration, xp, cost, use_text, _build_data_context(), inventory)
 
 
 func _format_cost_rich_text(cost: Dictionary) -> String:
-	if cost.is_empty():
-		return "Cost: Free"
-
-	return "Cost: %s" % _format_cost_markup(cost)
+	return GamePresentation.format_cost_rich_text(cost, _build_data_context(), inventory)
 
 
 func _format_cost_markup(cost: Dictionary) -> String:
-	var parts: Array[String] = []
-	for resource_id in _get_inventory_item_order():
-		if not cost.has(resource_id):
-			continue
-
-		var amount := int(cost[resource_id])
-		var part := _format_resource_cost_part(resource_id, amount)
-
-		parts.append(part)
-
-	if parts.is_empty():
-		return "Free"
-
-	return ", ".join(parts)
+	return GamePresentation.format_cost_markup(cost, _build_data_context(), inventory)
 
 
 func _format_resource_cost_part(resource_id: String, amount: int) -> String:
-	var part := "%d %s" % [amount, _get_resource_name(resource_id)]
-	if int(inventory.get(resource_id, 0)) < amount:
-		part = "[url=resource:%s:%d][color=#ff7070]%s[/color][/url]" % [resource_id, amount, part]
-
-	return part
+	return GamePresentation.format_resource_cost_part(resource_id, amount, _build_data_context(), inventory)
 
 
 func _format_seconds(seconds: float) -> String:
-	var total_seconds := maxf(0.0, seconds)
-	var minutes := int(total_seconds / 60.0)
-	var remainder := total_seconds - float(minutes * 60)
-
-	if minutes > 0:
-		return "%dm %.1fs" % [minutes, remainder]
-
-	return "%.1fs" % total_seconds
+	return GamePresentation.format_seconds(seconds)
 
 
 func _get_current_action_time_left() -> float:
