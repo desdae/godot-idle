@@ -5,6 +5,7 @@ const GameData = preload("res://scripts/game_data.gd")
 const GameEconomy = preload("res://scripts/game_economy.gd")
 const GameInteractions = preload("res://scripts/game_interactions.gd")
 const GamePresentation = preload("res://scripts/game_presentation.gd")
+const GameQueries = preload("res://scripts/game_queries.gd")
 const GameQueue = preload("res://scripts/game_queue.gd")
 const GameRules = preload("res://scripts/game_rules.gd")
 const GameRuntime = preload("res://scripts/game_runtime.gd")
@@ -592,14 +593,31 @@ func _build_upgrades_panel(parent: VBoxContainer) -> void:
 
 
 func _queue_pickable(resource_id: String) -> void:
-	if not _can_queue_pickable(resource_id):
+	var block_reason := GameQueries.get_gather_queue_block_reason(
+		resource_id,
+		action_queue,
+		GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
+		current_action,
+		_create_simulation_state(),
+		_build_rules_context()
+	)
+	if not GameQueries.can_queue_pickable(resource_id, skill_states, _build_data_context(), block_reason):
 		return
 
 	_queue_action_count(_make_gather_action(resource_id), _get_requested_queue_amount())
 
 
 func _craft_tool(tool_id: String) -> void:
-	if not _can_queue_tool_action(tool_id):
+	if not GameQueries.can_queue_from_block_reason(
+		GameQueries.get_tool_queue_block_reason(
+			tool_id,
+			action_queue,
+			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
+			current_action,
+			_create_simulation_state(),
+			_build_rules_context()
+		)
+	):
 		return
 
 	_queue_action(_make_craft_tool_action(tool_id))
@@ -610,28 +628,65 @@ func _craft_item(craftable_id: String) -> void:
 		_upgrade_craftable(craftable_id)
 		return
 
-	if not _can_queue_craftable_action(craftable_id):
+	if not GameQueries.can_queue_from_block_reason(
+		GameQueries.get_craftable_queue_block_reason(
+			craftable_id,
+			action_queue,
+			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
+			current_action,
+			_create_simulation_state(),
+			_build_rules_context()
+		)
+	):
 		return
 
 	_queue_action(_make_craft_item_action(craftable_id))
 
 
 func _upgrade_craftable(craftable_id: String) -> void:
-	if not _can_queue_craftable_upgrade_action(craftable_id):
+	if not GameQueries.can_queue_from_block_reason(
+		GameQueries.get_craftable_upgrade_queue_block_reason(
+			craftable_id,
+			action_queue,
+			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
+			current_action,
+			_create_simulation_state(),
+			_build_rules_context()
+		)
+	):
 		return
 
 	_queue_action(_make_upgrade_craftable_action(craftable_id))
 
 
 func _queue_recipe(recipe_id: String) -> void:
-	if not _can_queue_recipe_action(recipe_id):
+	if not GameQueries.can_queue_from_block_reason(
+		GameQueries.get_recipe_queue_block_reason(
+			recipe_id,
+			action_queue,
+			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
+			current_action,
+			_create_simulation_state(),
+			_build_rules_context()
+		)
+	):
 		return
 
 	_queue_action_count(_make_process_recipe_action(recipe_id), _get_requested_queue_amount())
 
 
 func _queue_station_fuel(craftable_id: String, item_id: String) -> void:
-	if not _can_queue_station_fuel_action(craftable_id, item_id):
+	if not GameQueries.can_queue_from_block_reason(
+		GameQueries.get_station_fuel_queue_block_reason(
+			craftable_id,
+			item_id,
+			action_queue,
+			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
+			current_action,
+			_create_simulation_state(),
+			_build_rules_context()
+		)
+	):
 		return
 
 	_queue_action_count(_make_refuel_station_action(craftable_id, item_id), _get_requested_queue_amount())
@@ -763,8 +818,15 @@ func _refresh_resource_card(resource_id: String) -> void:
 		inventory,
 		skill_states,
 		current_action,
-		_get_gather_queue_block_reason(resource_id),
-		_get_gather_action_duration(resource_id),
+		GameQueries.get_gather_queue_block_reason(
+			resource_id,
+			action_queue,
+			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
+			current_action,
+			_create_simulation_state(),
+			_build_rules_context()
+		),
+		GameQueries.get_gather_action_duration(resource_id, _create_simulation_state(), _build_rules_context()),
 		_get_queue_button_tooltip()
 	)
 	GameUiRefresh.apply_resource_card(resource_cards[resource_id], view)
@@ -800,7 +862,15 @@ func _refresh_recipe_panel() -> void:
 		var all_fuel_buttons_full := fuel_buttons.size() > 0 and bool(station_view["show_fuel_summary"])
 		var fuel_views := {}
 		for fuel_item_id in fuel_buttons.keys():
-			var fuel_block_reason := _get_station_fuel_queue_block_reason(craftable_id, fuel_item_id)
+			var fuel_block_reason := GameQueries.get_station_fuel_queue_block_reason(
+				craftable_id,
+				fuel_item_id,
+				action_queue,
+				GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
+				current_action,
+				_create_simulation_state(),
+				_build_rules_context()
+			)
 			fuel_views[fuel_item_id] = GameViews.get_fuel_button_view(
 				fuel_item_id,
 				_build_data_context(),
@@ -839,7 +909,14 @@ func _refresh_tool_card(tool_id: String) -> void:
 		current_action,
 		GameState.get_current_action_time_left(current_action),
 		GameState.has_queued_action(action_queue, "craft_tool", tool_id),
-		_get_tool_queue_block_reason(tool_id)
+		GameQueries.get_tool_queue_block_reason(
+			tool_id,
+			action_queue,
+			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
+			current_action,
+			_create_simulation_state(),
+			_build_rules_context()
+		)
 	)
 	GameUiRefresh.apply_tool_card(tool_cards[tool_id], view)
 
@@ -853,8 +930,22 @@ func _refresh_craftable_card(craftable_id: String) -> void:
 		craftable_upgrade_levels,
 		current_action,
 		GameState.get_current_action_time_left(current_action),
-		_get_craftable_queue_block_reason(craftable_id),
-		_get_craftable_upgrade_queue_block_reason(craftable_id)
+		GameQueries.get_craftable_queue_block_reason(
+			craftable_id,
+			action_queue,
+			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
+			current_action,
+			_create_simulation_state(),
+			_build_rules_context()
+		),
+		GameQueries.get_craftable_upgrade_queue_block_reason(
+			craftable_id,
+			action_queue,
+			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
+			current_action,
+			_create_simulation_state(),
+			_build_rules_context()
+		)
 	)
 	GameUiRefresh.apply_craftable_card(craftable_cards[craftable_id], view)
 
@@ -873,7 +964,14 @@ func _refresh_recipe_card(recipe_id: String) -> void:
 		crafted_items,
 		current_action,
 		GameState.get_current_action_time_left(current_action),
-		_get_recipe_queue_block_reason(recipe_id),
+		GameQueries.get_recipe_queue_block_reason(
+			recipe_id,
+			action_queue,
+			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
+			current_action,
+			_create_simulation_state(),
+			_build_rules_context()
+		),
 		display_duration,
 		_get_recipe_craft_cost(recipe_id),
 		_get_recipe_outputs(recipe_id),
@@ -896,75 +994,19 @@ func _refresh_upgrade_card(upgrade_id: String) -> void:
 	GameUiRefresh.apply_upgrade_card(upgrade_cards[upgrade_id], view)
 
 
-func _can_queue_pickable(resource_id: String) -> bool:
-	if not GameState.is_resource_unlocked(resource_id, skill_states, _build_data_context()):
-		return false
-
-	return _get_gather_queue_block_reason(resource_id) == ""
-
-
-func _can_queue_tool_action(tool_id: String) -> bool:
-	return _get_tool_queue_block_reason(tool_id) == ""
-
-
-func _can_queue_craftable_action(craftable_id: String) -> bool:
-	return _get_craftable_queue_block_reason(craftable_id) == ""
-
-
-func _can_queue_craftable_upgrade_action(craftable_id: String) -> bool:
-	return _get_craftable_upgrade_queue_block_reason(craftable_id) == ""
-
-
-func _can_queue_recipe_action(recipe_id: String) -> bool:
-	return _get_recipe_queue_block_reason(recipe_id) == ""
-
-
-func _can_queue_station_fuel_action(craftable_id: String, item_id: String) -> bool:
-	return _get_station_fuel_queue_block_reason(craftable_id, item_id) == ""
-
-
-func _get_queue_block_reason_for_action(action: Dictionary) -> String:
-	return GameQueue.get_queue_block_reason_for_action(
-		action_queue,
-		_get_queue_capacity(),
-		action,
-		_action_from_current_action(),
-		_create_simulation_state(),
-		_build_rules_context()
-	)
-
-
-func _get_gather_queue_block_reason(resource_id: String) -> String:
-	return _get_queue_block_reason_for_action(_make_gather_action(resource_id))
-
-
-func _get_tool_queue_block_reason(tool_id: String) -> String:
-	return _get_queue_block_reason_for_action(_make_craft_tool_action(tool_id))
-
-
-func _get_craftable_queue_block_reason(craftable_id: String) -> String:
-	return _get_queue_block_reason_for_action(_make_craft_item_action(craftable_id))
-
-
-func _get_craftable_upgrade_queue_block_reason(craftable_id: String) -> String:
-	return _get_queue_block_reason_for_action(_make_upgrade_craftable_action(craftable_id))
-
-
-func _get_recipe_queue_block_reason(recipe_id: String) -> String:
-	return _get_queue_block_reason_for_action(_make_process_recipe_action(recipe_id))
-
-
-func _get_station_fuel_queue_block_reason(craftable_id: String, item_id: String) -> String:
-	return _get_queue_block_reason_for_action(_make_refuel_station_action(craftable_id, item_id))
-
-
 func _refresh_runtime_status() -> void:
 	var view := GameViews.get_runtime_status_view(
 		current_action,
 		is_queue_paused,
 		action_queue.size(),
-		_get_queue_capacity(),
-		_estimate_queue_time_left(),
+		GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
+		GameQueries.estimate_queue_time_left(
+			current_action,
+			action_queue,
+			_create_simulation_state(),
+			GameState.get_current_action_time_left(current_action),
+			_build_rules_context()
+		),
 		_build_data_context()
 	)
 	GameUiRefresh.apply_runtime_status(current_action_label, queue_summary_label, queue_time_left_label, view)
@@ -974,7 +1016,10 @@ func _refresh_runtime_status() -> void:
 func _refresh_queue_button_hover_previews() -> void:
 	var is_ctrl_pressed := Input.is_key_pressed(KEY_CTRL)
 	var is_shift_pressed := Input.is_key_pressed(KEY_SHIFT)
-	var free_queue_slots := _get_free_queue_slots()
+	var free_queue_slots := GameQueries.get_free_queue_slots(
+		action_queue.size(),
+		GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade)
+	)
 
 	for resource_id in gatherable_order:
 		var card: Dictionary = resource_cards[resource_id]
@@ -1041,15 +1086,14 @@ func _get_queue_button_tooltip() -> String:
 
 func _get_requested_queue_amount() -> int:
 	if Input.is_key_pressed(KEY_CTRL):
-		return _get_free_queue_slots()
+		return GameQueries.get_free_queue_slots(
+			action_queue.size(),
+			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade)
+		)
 	if Input.is_key_pressed(KEY_SHIFT):
 		return 5
 
 	return 1
-
-
-func _get_free_queue_slots() -> int:
-	return GameQueue.get_free_queue_slots(action_queue.size(), _get_queue_capacity())
 
 
 func _update_gather_bars() -> void:
@@ -1057,36 +1101,6 @@ func _update_gather_bars() -> void:
 		var card: Dictionary = resource_cards[resource_id]
 		var bar: ProgressBar = card["gather_bar"]
 		bar.value = GameViews.get_gather_progress_value(resource_id, current_action)
-
-
-func _get_gather_action_duration(resource_id: String) -> float:
-	return _get_action_duration(_make_gather_action(resource_id))
-
-
-func _get_action_duration(action: Dictionary) -> float:
-	return _get_action_duration_for_state(action, _create_simulation_state())
-
-
-func _get_action_duration_for_state(action: Dictionary, state: Dictionary) -> float:
-	return GameRules.get_action_duration_for_state(action, state, _build_rules_context())
-
-
-func _get_gather_action_duration_for_state(resource_id: String, level_value: int, tooling_level: int) -> float:
-	return GameRules.get_gather_action_duration_for_state(resource_id, level_value, tooling_level, _build_rules_context())
-
-
-func _get_recipe_craft_time_for_state(recipe_id: String, state: Dictionary) -> float:
-	return GameRules.get_recipe_craft_time_for_state(recipe_id, state, _build_rules_context())
-
-
-func _estimate_queue_time_left() -> float:
-	return GameQueue.estimate_queue_time_left(
-		_action_from_current_action(),
-		action_queue,
-		_create_simulation_state(),
-		GameState.get_current_action_time_left(current_action),
-		_build_rules_context()
-	)
 
 
 func _refresh_skill_row(skill_id: String) -> void:
@@ -1304,7 +1318,11 @@ func _get_recipe_outputs(recipe_id: String) -> Dictionary:
 
 
 func _get_recipe_craft_time(recipe_id: String) -> float:
-	return _get_action_duration(_make_process_recipe_action(recipe_id))
+	return GameQueries.get_action_duration(
+		GameActions.make_process_recipe_action(recipe_id),
+		_create_simulation_state(),
+		_build_rules_context()
+	)
 
 
 func _get_recipe_craft_xp(recipe_id: String) -> int:
@@ -1324,10 +1342,10 @@ func _get_recipe_source_fuel_units(recipe_id: String) -> int:
 
 
 func _build_pipeline_end_state() -> Dictionary:
-	return GameRules.build_pipeline_end_state(
-		_create_simulation_state(),
-		_action_from_current_action(),
+	return GameQueries.build_pipeline_end_state(
+		current_action,
 		action_queue,
+		_create_simulation_state(),
 		_build_rules_context()
 	)
 
@@ -1485,7 +1503,10 @@ func _queue_linked_resource_shortfall(item_id: String, required_amount: int) -> 
 		item_id,
 		required_amount,
 		_build_pipeline_end_state(),
-		_get_free_queue_slots(),
+		GameQueries.get_free_queue_slots(
+			action_queue.size(),
+			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade)
+		),
 		_build_data_context(),
 		_build_rules_context()
 	)
