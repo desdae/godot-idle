@@ -2,6 +2,7 @@ extends Control
 
 const GameActions = preload("res://scripts/game_actions.gd")
 const GameData = preload("res://scripts/game_data.gd")
+const GameEconomy = preload("res://scripts/game_economy.gd")
 const GamePresentation = preload("res://scripts/game_presentation.gd")
 const GameQueue = preload("res://scripts/game_queue.gd")
 const GameRules = preload("res://scripts/game_rules.gd")
@@ -1796,15 +1797,11 @@ func _get_next_unlock_text_for_skill(skill_id: String) -> String:
 
 
 func _get_capacity(resource_id: String) -> int:
-	if not gatherables.has(resource_id):
-		return 999999
-
-	var gatherable: Dictionary = gatherables[resource_id]
-	return int(gatherable["base_capacity"]) + int(upgrade_levels["bag_space"]) * bag_capacity_per_upgrade
+	return GameEconomy.get_capacity(resource_id, _build_data_context(), upgrade_levels, bag_capacity_per_upgrade)
 
 
 func _get_queue_capacity() -> int:
-	return base_queue_size + int(upgrade_levels["queue_slots"]) * queue_size_per_upgrade
+	return GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade)
 
 
 func _get_resource_xp(resource_id: String) -> int:
@@ -1971,13 +1968,12 @@ func _get_craftable_upgrade_cost(craftable_id: String, from_level: int = -1) -> 
 	if effective_level < 0:
 		effective_level = _get_craftable_upgrade_level(craftable_id)
 
-	var multiplier := pow(_get_craftable_upgrade_cost_multiplier(craftable_id), effective_level)
-	var base_cost := _get_craftable_craft_cost(craftable_id)
-	var scaled_cost := {}
-	for resource_id in base_cost.keys():
-		scaled_cost[resource_id] = int(ceil(float(base_cost[resource_id]) * multiplier))
-
-	return _build_cost(scaled_cost)
+	return GameEconomy.get_craftable_upgrade_cost(
+		craftable_id,
+		effective_level,
+		_build_data_context(),
+		_get_inventory_item_order()
+	)
 
 
 func _get_craftable_upgrade_cost_multiplier(craftable_id: String) -> float:
@@ -1997,7 +1993,7 @@ func _get_station_stored_fuel_units(craftable_id: String) -> int:
 
 
 func _get_craftable_speed_multiplier(craftable_id: String) -> float:
-	return pow(_get_craftable_station_speed_multiplier(craftable_id), _get_craftable_upgrade_level(craftable_id))
+	return GameEconomy.get_craftable_speed_multiplier(craftable_id, _get_craftable_upgrade_level(craftable_id), _build_data_context())
 
 
 func _get_recipe_name(recipe_id: String) -> String:
@@ -2148,37 +2144,11 @@ func _get_upgrade_detail(upgrade_id: String) -> String:
 
 
 func _get_upgrade_cost(upgrade_id: String) -> Dictionary:
-	var next_level := int(upgrade_levels[upgrade_id]) + 1
-	var upgrade_data: Dictionary = upgrades.get(upgrade_id, {})
-	var cost_curve: Dictionary = upgrade_data.get("cost_curve", {})
-	var raw_cost := {}
-
-	for resource_id in cost_curve.keys():
-		var resource_curve: Dictionary = cost_curve[resource_id]
-		var start_level := int(resource_curve.get("start_level", 1))
-		if next_level < start_level:
-			continue
-
-		var base_cost := int(resource_curve.get("base", 0))
-		var step_cost := int(resource_curve.get("step", 0))
-		var amount := base_cost + (next_level - start_level) * step_cost
-		if amount > 0:
-			raw_cost[resource_id] = amount
-
-	return _build_cost(raw_cost)
+	return GameEconomy.get_upgrade_cost(upgrade_id, upgrade_levels, upgrades, _get_inventory_item_order())
 
 
 func _build_cost(raw_cost: Dictionary) -> Dictionary:
-	var result := {}
-	for resource_id in _get_inventory_item_order():
-		if not raw_cost.has(resource_id):
-			continue
-
-		var amount := int(raw_cost[resource_id])
-		if amount > 0:
-			result[resource_id] = amount
-
-	return result
+	return GameEconomy.build_cost(raw_cost, _get_inventory_item_order())
 
 
 func _can_afford(cost: Dictionary) -> bool:
@@ -2190,8 +2160,7 @@ func _can_afford_inventory(stock: Dictionary, cost: Dictionary) -> bool:
 
 
 func _spend_resources(cost: Dictionary) -> void:
-	for resource_id in cost.keys():
-		inventory[resource_id] -= int(cost[resource_id])
+	GameEconomy.spend_resources(inventory, cost)
 
 
 func _on_cost_meta_clicked(meta: Variant) -> void:

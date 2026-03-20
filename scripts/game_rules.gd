@@ -2,6 +2,7 @@ extends RefCounted
 
 const GameActions = preload("res://scripts/game_actions.gd")
 const GameData = preload("res://scripts/game_data.gd")
+const GameEconomy = preload("res://scripts/game_economy.gd")
 
 
 static func get_action_duration_for_state(action: Dictionary, state: Dictionary, rules: Dictionary) -> float:
@@ -357,11 +358,7 @@ static func _get_gather_output_item_id(resource_id: String, rules: Dictionary) -
 
 
 static func _get_capacity(resource_id: String, rules: Dictionary) -> int:
-	if not rules["gatherables"].has(resource_id):
-		return 999999
-
-	var gatherable: Dictionary = rules["gatherables"][resource_id]
-	return int(gatherable["base_capacity"]) + int(rules["upgrade_levels"]["bag_space"]) * int(rules["bag_capacity_per_upgrade"])
+	return GameEconomy.get_capacity(resource_id, rules, rules["upgrade_levels"], int(rules["bag_capacity_per_upgrade"]))
 
 
 static func _get_resource_xp(resource_id: String, rules: Dictionary) -> int:
@@ -429,13 +426,7 @@ static func _get_craftable_max_count(craftable_id: String, rules: Dictionary) ->
 
 
 static func _get_craftable_upgrade_cost(craftable_id: String, from_level: int, rules: Dictionary) -> Dictionary:
-	var multiplier := pow(_get_craftable_upgrade_cost_multiplier(craftable_id, rules), from_level)
-	var base_cost := _get_craftable_craft_cost(craftable_id, rules)
-	var scaled_cost := {}
-	for resource_id in base_cost.keys():
-		scaled_cost[resource_id] = int(ceil(float(base_cost[resource_id]) * multiplier))
-
-	return scaled_cost
+	return GameEconomy.get_craftable_upgrade_cost(craftable_id, from_level, rules, rules["inventory_item_order"])
 
 
 static func _get_craftable_upgrade_cost_multiplier(craftable_id: String, rules: Dictionary) -> float:
