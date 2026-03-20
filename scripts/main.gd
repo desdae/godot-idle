@@ -2,6 +2,7 @@ extends Control
 
 const GameActions = preload("res://scripts/game_actions.gd")
 const GameData = preload("res://scripts/game_data.gd")
+const GameQueue = preload("res://scripts/game_queue.gd")
 const GameRules = preload("res://scripts/game_rules.gd")
 
 var game_title := "Idle Gatherer"
@@ -1047,24 +1048,15 @@ func _queue_action(action: Dictionary) -> void:
 
 
 func _queue_action_count(action: Dictionary, amount: int) -> void:
-	if amount <= 0:
-		return
-
-	var queue_count := mini(amount, _get_free_queue_slots())
-	if queue_count <= 0:
-		return
-
-	var pipeline_state := _build_pipeline_end_state()
-	var queued_any := false
-
-	for _index in range(queue_count):
-		var simulation_result := _simulate_action_in_state(pipeline_state, action)
-		if not simulation_result["ran"]:
-			break
-
-		action_queue.append(action.duplicate(true))
-		queued_any = true
-
+	var queued_any := GameQueue.queue_action_count(
+		action_queue,
+		action,
+		amount,
+		_get_queue_capacity(),
+		_action_from_current_action(),
+		_create_simulation_state(),
+		_build_rules_context()
+	)
 	if not queued_any:
 		return
 
@@ -1546,52 +1538,39 @@ func _can_queue_station_fuel_action(craftable_id: String, item_id: String) -> bo
 	return _get_station_fuel_queue_block_reason(craftable_id, item_id) == ""
 
 
-func _get_gather_queue_block_reason(resource_id: String) -> String:
-	if action_queue.size() >= _get_queue_capacity():
-		return "Queue full"
+func _get_queue_block_reason_for_action(action: Dictionary) -> String:
+	return GameQueue.get_queue_block_reason_for_action(
+		action_queue,
+		_get_queue_capacity(),
+		action,
+		_action_from_current_action(),
+		_create_simulation_state(),
+		_build_rules_context()
+	)
 
-	var pipeline_state := _build_pipeline_end_state()
-	return _get_action_block_reason_in_state(_make_gather_action(resource_id), pipeline_state)
+
+func _get_gather_queue_block_reason(resource_id: String) -> String:
+	return _get_queue_block_reason_for_action(_make_gather_action(resource_id))
 
 
 func _get_tool_queue_block_reason(tool_id: String) -> String:
-	if action_queue.size() >= _get_queue_capacity():
-		return "Queue full"
-
-	var pipeline_state := _build_pipeline_end_state()
-	return _get_action_block_reason_in_state(_make_craft_tool_action(tool_id), pipeline_state)
+	return _get_queue_block_reason_for_action(_make_craft_tool_action(tool_id))
 
 
 func _get_craftable_queue_block_reason(craftable_id: String) -> String:
-	if action_queue.size() >= _get_queue_capacity():
-		return "Queue full"
-
-	var pipeline_state := _build_pipeline_end_state()
-	return _get_action_block_reason_in_state(_make_craft_item_action(craftable_id), pipeline_state)
+	return _get_queue_block_reason_for_action(_make_craft_item_action(craftable_id))
 
 
 func _get_craftable_upgrade_queue_block_reason(craftable_id: String) -> String:
-	if action_queue.size() >= _get_queue_capacity():
-		return "Queue full"
-
-	var pipeline_state := _build_pipeline_end_state()
-	return _get_action_block_reason_in_state(_make_upgrade_craftable_action(craftable_id), pipeline_state)
+	return _get_queue_block_reason_for_action(_make_upgrade_craftable_action(craftable_id))
 
 
 func _get_recipe_queue_block_reason(recipe_id: String) -> String:
-	if action_queue.size() >= _get_queue_capacity():
-		return "Queue full"
-
-	var pipeline_state := _build_pipeline_end_state()
-	return _get_action_block_reason_in_state(_make_process_recipe_action(recipe_id), pipeline_state)
+	return _get_queue_block_reason_for_action(_make_process_recipe_action(recipe_id))
 
 
 func _get_station_fuel_queue_block_reason(craftable_id: String, item_id: String) -> String:
-	if action_queue.size() >= _get_queue_capacity():
-		return "Queue full"
-
-	var pipeline_state := _build_pipeline_end_state()
-	return _get_action_block_reason_in_state(_make_refuel_station_action(craftable_id, item_id), pipeline_state)
+	return _get_queue_block_reason_for_action(_make_refuel_station_action(craftable_id, item_id))
 
 
 func _refresh_runtime_status() -> void:
@@ -1710,7 +1689,7 @@ func _get_requested_queue_amount() -> int:
 
 
 func _get_free_queue_slots() -> int:
-	return maxi(0, _get_queue_capacity() - action_queue.size())
+	return GameQueue.get_free_queue_slots(action_queue.size(), _get_queue_capacity())
 
 
 func _update_gather_bars() -> void:
@@ -1745,19 +1724,13 @@ func _get_recipe_craft_time_for_state(recipe_id: String, state: Dictionary) -> f
 
 
 func _estimate_queue_time_left() -> float:
-	var total_time := 0.0
-	var state := _create_simulation_state()
-
-	if not current_action.is_empty():
-		total_time += _get_current_action_time_left()
-		_apply_action_completion_to_state(state, _action_from_current_action())
-
-	for queued_action in action_queue:
-		var result := _simulate_action_in_state(state, queued_action)
-		if result["ran"]:
-			total_time += result["duration"]
-
-	return total_time
+	return GameQueue.estimate_queue_time_left(
+		_action_from_current_action(),
+		action_queue,
+		_create_simulation_state(),
+		_get_current_action_time_left(),
+		_build_rules_context()
+	)
 
 
 func _simulate_exp_gain(level_value: int, exp_value: int, exp_to_next_value: int, amount: int) -> Dictionary:
