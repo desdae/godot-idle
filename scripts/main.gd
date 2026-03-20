@@ -8,6 +8,7 @@ const GamePresentation = preload("res://scripts/game_presentation.gd")
 const GameQueue = preload("res://scripts/game_queue.gd")
 const GameRules = preload("res://scripts/game_rules.gd")
 const GameRuntime = preload("res://scripts/game_runtime.gd")
+const GameState = preload("res://scripts/game_state.gd")
 const GameUiBuilder = preload("res://scripts/game_ui_builder.gd")
 const GameViews = preload("res://scripts/game_views.gd")
 
@@ -604,7 +605,7 @@ func _craft_tool(tool_id: String) -> void:
 
 
 func _craft_item(craftable_id: String) -> void:
-	if _get_crafted_item_count(craftable_id) > 0:
+	if GameState.get_crafted_item_count(crafted_items, craftable_id) > 0:
 		_upgrade_craftable(craftable_id)
 		return
 
@@ -868,8 +869,8 @@ func _refresh_tool_card(tool_id: String) -> void:
 		tools,
 		inventory,
 		current_action,
-		_get_current_action_time_left(),
-		_has_queued_action("craft_tool", tool_id),
+		GameState.get_current_action_time_left(current_action),
+		GameState.has_queued_action(action_queue, "craft_tool", tool_id),
 		_get_tool_queue_block_reason(tool_id)
 	)
 	status_label.text = view["status_text"]
@@ -890,7 +891,7 @@ func _refresh_craftable_card(craftable_id: String) -> void:
 		crafted_items,
 		craftable_upgrade_levels,
 		current_action,
-		_get_current_action_time_left(),
+		GameState.get_current_action_time_left(current_action),
 		_get_craftable_queue_block_reason(craftable_id),
 		_get_craftable_upgrade_queue_block_reason(craftable_id)
 	)
@@ -915,7 +916,7 @@ func _refresh_recipe_card(recipe_id: String) -> void:
 		inventory,
 		crafted_items,
 		current_action,
-		_get_current_action_time_left(),
+		GameState.get_current_action_time_left(current_action),
 		_get_recipe_queue_block_reason(recipe_id),
 		display_duration,
 		_get_recipe_craft_cost(recipe_id),
@@ -951,7 +952,7 @@ func _refresh_upgrade_card(upgrade_id: String) -> void:
 
 
 func _can_queue_pickable(resource_id: String) -> bool:
-	if not _is_resource_unlocked(resource_id):
+	if not GameState.is_resource_unlocked(resource_id, skill_states, _build_data_context()):
 		return false
 
 	return _get_gather_queue_block_reason(resource_id) == ""
@@ -1038,7 +1039,7 @@ func _refresh_queue_button_hover_previews() -> void:
 		if queue_button.disabled:
 			continue
 
-		var is_current_action := _is_current_gather_action(resource_id)
+		var is_current_action := GameState.is_current_action(current_action, "gather", resource_id)
 		var base_text := "Queue +1" if is_current_action else "Queue"
 		queue_button.tooltip_text = _get_queue_button_tooltip()
 		queue_button.text = GameViews.get_hover_queue_button_text(
@@ -1140,7 +1141,7 @@ func _estimate_queue_time_left() -> float:
 		_action_from_current_action(),
 		action_queue,
 		_create_simulation_state(),
-		_get_current_action_time_left(),
+		GameState.get_current_action_time_left(current_action),
 		_build_rules_context()
 	)
 
@@ -1253,16 +1254,8 @@ func _resource_requires_tool(resource_id: String) -> bool:
 	return _get_required_tool_id(resource_id) != ""
 
 
-func _is_resource_unlocked(resource_id: String) -> bool:
-	return _get_skill_level(_get_resource_skill_id(resource_id)) >= _get_unlock_level(resource_id)
-
-
 func _get_skill_name(skill_id: String) -> String:
 	return GameData.get_skill_name(skill_id, _build_data_context())
-
-
-func _get_skill_level(skill_id: String) -> int:
-	return int(skill_states[skill_id]["level"])
 
 
 func _get_skill_level_speed_multiplier(level_value: int) -> float:
@@ -1301,10 +1294,6 @@ func _get_tool_craft_xp(tool_id: String) -> int:
 	return GameData.get_tool_craft_xp(tool_id, _build_data_context())
 
 
-func _get_tool_durability(tool_id: String) -> int:
-	return int(tools[tool_id]["durability"])
-
-
 func _get_tool_use_text(tool_id: String) -> String:
 	return GameData.get_tool_use_text(tool_id, _build_data_context())
 
@@ -1329,29 +1318,14 @@ func _get_craftable_use_text(craftable_id: String) -> String:
 	return GameData.get_craftable_use_text(craftable_id, _build_data_context())
 
 
-func _get_crafted_item_count(craftable_id: String) -> int:
-	return int(crafted_items[craftable_id])
-
-
 func _get_craftable_max_count(craftable_id: String) -> int:
 	return GameData.get_craftable_max_count(craftable_id, _build_data_context())
-
-
-func _get_craftable_upgrade_level(craftable_id: String) -> int:
-	return int(craftable_upgrade_levels.get(craftable_id, 0))
-
-
-func _get_processing_station_level(craftable_id: String) -> int:
-	if _get_crafted_item_count(craftable_id) <= 0:
-		return 0
-
-	return _get_craftable_upgrade_level(craftable_id) + 1
 
 
 func _get_craftable_upgrade_cost(craftable_id: String, from_level: int = -1) -> Dictionary:
 	var effective_level := from_level
 	if effective_level < 0:
-		effective_level = _get_craftable_upgrade_level(craftable_id)
+		effective_level = GameState.get_craftable_upgrade_level(craftable_upgrade_levels, craftable_id)
 
 	return GameEconomy.get_craftable_upgrade_cost(
 		craftable_id,
@@ -1373,12 +1347,12 @@ func _get_station_fuel_capacity(craftable_id: String) -> int:
 	return GameData.get_station_fuel_capacity(craftable_id, _build_data_context())
 
 
-func _get_station_stored_fuel_units(craftable_id: String) -> int:
-	return int(stored_fuel_units.get(craftable_id, 0))
-
-
 func _get_craftable_speed_multiplier(craftable_id: String) -> float:
-	return GameEconomy.get_craftable_speed_multiplier(craftable_id, _get_craftable_upgrade_level(craftable_id), _build_data_context())
+	return GameEconomy.get_craftable_speed_multiplier(
+		craftable_id,
+		GameState.get_craftable_upgrade_level(craftable_upgrade_levels, craftable_id),
+		_build_data_context()
+	)
 
 
 func _get_recipe_name(recipe_id: String) -> String:
@@ -1427,14 +1401,14 @@ func _build_pipeline_end_state() -> Dictionary:
 
 
 func _create_simulation_state() -> Dictionary:
-	return {
-		"inventory": inventory.duplicate(true),
-		"tools": tools.duplicate(true),
-		"crafted_items": crafted_items.duplicate(true),
-		"craftable_upgrade_levels": craftable_upgrade_levels.duplicate(true),
-		"stored_fuel_units": stored_fuel_units.duplicate(true),
-		"skills": skill_states.duplicate(true),
-	}
+	return GameState.build_simulation_state(
+		inventory,
+		tools,
+		crafted_items,
+		craftable_upgrade_levels,
+		stored_fuel_units,
+		skill_states
+	)
 
 
 func _simulate_action_in_state(state: Dictionary, action: Dictionary) -> Dictionary:
@@ -1503,18 +1477,6 @@ func _get_action_station_id(action: Dictionary) -> String:
 
 func _get_action_fuel_item_id(action: Dictionary) -> String:
 	return GameActions.get_action_fuel_item_id(action)
-
-
-func _is_current_gather_action(resource_id: String) -> bool:
-	return not current_action.is_empty() and _get_action_type(current_action) == "gather" and _get_action_id(current_action) == resource_id
-
-
-func _has_queued_action(action_type: String, action_id: String) -> bool:
-	for queued_action in action_queue:
-		if _get_action_type(queued_action) == action_type and _get_action_id(queued_action) == action_id:
-			return true
-
-	return false
 
 
 func _get_upgrade_detail(upgrade_id: String) -> String:
@@ -1637,13 +1599,6 @@ func _format_resource_cost_part(resource_id: String, amount: int) -> String:
 
 func _format_seconds(seconds: float) -> String:
 	return GamePresentation.format_seconds(seconds)
-
-
-func _get_current_action_time_left() -> float:
-	if current_action.is_empty():
-		return 0.0
-
-	return maxf(0.0, float(current_action["duration"]) - float(current_action["elapsed"]))
 
 
 func _update_responsive_layout() -> void:
