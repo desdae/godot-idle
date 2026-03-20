@@ -358,6 +358,78 @@ static func get_runtime_status_view(
 	}
 
 
+static func get_hover_queue_button_text(
+	base_text: String,
+	is_hovered: bool,
+	is_ctrl_pressed: bool,
+	is_shift_pressed: bool,
+	free_queue_slots: int,
+	compact: bool = false
+) -> String:
+	if not is_hovered:
+		return base_text
+
+	if is_ctrl_pressed:
+		return "+%d" % free_queue_slots if compact else "Queue +%d" % free_queue_slots
+	if is_shift_pressed:
+		return "+5" if compact else "Queue +5"
+
+	return base_text
+
+
+static func get_gather_progress_value(resource_id: String, current_action: Dictionary) -> float:
+	if not _is_current_action(current_action, "gather", resource_id):
+		return 0.0
+
+	var duration := maxf(0.001, float(current_action["duration"]))
+	return clampf((float(current_action["elapsed"]) / duration) * 100.0, 0.0, 100.0)
+
+
+static func get_active_skill_id(active_tab_title: String, active_gather_skill_id: String) -> String:
+	if active_tab_title == "Tools" or active_tab_title == "Buildables":
+		return "crafting"
+	if active_tab_title == "Processing":
+		return "cooking"
+	if active_tab_title != "Gatherables":
+		return ""
+
+	return active_gather_skill_id
+
+
+static func get_skill_context_text(active_skill_id: String, data: Dictionary, skill_states: Dictionary) -> String:
+	if active_skill_id == "":
+		return "Upgrades improve gathering speed, bag size, and queue size across skills."
+
+	if active_skill_id == "crafting":
+		return "Crafting levels up by making tools and buildables."
+	if active_skill_id == "cooking":
+		return "Cooking levels up by processing meals like Cook Rabbit."
+
+	return "%s: %s" % [
+		GameData.get_skill_name(active_skill_id, data),
+		_get_next_unlock_text_for_skill(active_skill_id, data, skill_states),
+	]
+
+
+static func get_skill_row_view(skill_id: String, data: Dictionary, skill_states: Dictionary, active_skill_id: String) -> Dictionary:
+	var skill_level := int(skill_states[skill_id]["level"])
+	var skill_exp := int(skill_states[skill_id]["exp"])
+	var skill_exp_to_next := int(skill_states[skill_id]["exp_to_next"])
+	var is_active := skill_id == active_skill_id
+	var exp_progress := 0.0
+	if skill_exp_to_next > 0:
+		exp_progress = float(skill_exp) / float(skill_exp_to_next) * 100.0
+
+	return {
+		"skill_label_text": "%s Lv %d" % [GameData.get_skill_name(skill_id, data), skill_level],
+		"exp_label_text": "%d / %d" % [skill_exp, skill_exp_to_next],
+		"exp_progress": exp_progress,
+		"panel_style": _make_skill_card_style(is_active),
+		"skill_label_color": Color(1, 1, 1, 1) if is_active else Color(0.82, 0.82, 0.82, 1),
+		"exp_label_color": Color(0.9, 0.9, 0.9, 1) if is_active else Color(0.65, 0.65, 0.65, 1),
+	}
+
+
 static func _is_current_action(current_action: Dictionary, action_type: String, action_id: String) -> bool:
 	return not current_action.is_empty() and GameActions.get_action_type(current_action) == action_type and GameActions.get_action_id(current_action) == action_id
 
@@ -372,3 +444,31 @@ static func _get_processing_station_level(craftable_id: String, crafted_items: D
 		return 0
 
 	return int(craftable_upgrade_levels.get(craftable_id, 0)) + 1
+
+
+static func _get_next_unlock_text_for_skill(skill_id: String, data: Dictionary, skill_states: Dictionary) -> String:
+	var skill_level := int(skill_states[skill_id]["level"])
+	for resource_id in data["gatherable_order"]:
+		if GameData.get_resource_skill_id(resource_id, data) != skill_id:
+			continue
+
+		var unlock_level := GameData.get_unlock_level(resource_id, data)
+		if skill_level < unlock_level:
+			return "Next: %s Lv %d" % [GameData.get_resource_name(resource_id, data), unlock_level]
+
+	return "All unlocked"
+
+
+static func _make_skill_card_style(is_active: bool) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.21, 0.21, 0.21, 1) if is_active else Color(0.16, 0.16, 0.16, 1)
+	style.border_width_left = 1
+	style.border_width_top = 1
+	style.border_width_right = 1
+	style.border_width_bottom = 1
+	style.border_color = Color(0.75, 0.75, 0.75, 0.95) if is_active else Color(0.24, 0.24, 0.24, 1)
+	style.corner_radius_top_left = 4
+	style.corner_radius_top_right = 4
+	style.corner_radius_bottom_right = 4
+	style.corner_radius_bottom_left = 4
+	return style

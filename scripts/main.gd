@@ -1027,6 +1027,10 @@ func _refresh_runtime_status() -> void:
 
 
 func _refresh_queue_button_hover_previews() -> void:
+	var is_ctrl_pressed := Input.is_key_pressed(KEY_CTRL)
+	var is_shift_pressed := Input.is_key_pressed(KEY_SHIFT)
+	var free_queue_slots := _get_free_queue_slots()
+
 	for resource_id in gatherable_order:
 		var card: Dictionary = resource_cards[resource_id]
 		var queue_button: Button = card["queue_button"]
@@ -1036,17 +1040,13 @@ func _refresh_queue_button_hover_previews() -> void:
 		var is_current_action := _is_current_gather_action(resource_id)
 		var base_text := "Queue +1" if is_current_action else "Queue"
 		queue_button.tooltip_text = _get_queue_button_tooltip()
-
-		if not queue_button.is_hovered():
-			queue_button.text = base_text
-			continue
-
-		if Input.is_key_pressed(KEY_CTRL):
-			queue_button.text = "Queue +%d" % _get_free_queue_slots()
-		elif Input.is_key_pressed(KEY_SHIFT):
-			queue_button.text = "Queue +5"
-		else:
-			queue_button.text = base_text
+		queue_button.text = GameViews.get_hover_queue_button_text(
+			base_text,
+			queue_button.is_hovered(),
+			is_ctrl_pressed,
+			is_shift_pressed,
+			free_queue_slots
+		)
 
 	for recipe_id in recipe_order:
 		if not recipe_cards.has(recipe_id):
@@ -1063,16 +1063,13 @@ func _refresh_queue_button_hover_previews() -> void:
 			and _get_action_id(current_action) == recipe_id
 		)
 		var recipe_base_text := "Queue +1" if is_current_recipe else "Queue"
-		if not recipe_button.is_hovered():
-			recipe_button.text = recipe_base_text
-			continue
-
-		if Input.is_key_pressed(KEY_CTRL):
-			recipe_button.text = "Queue +%d" % _get_free_queue_slots()
-		elif Input.is_key_pressed(KEY_SHIFT):
-			recipe_button.text = "Queue +5"
-		else:
-			recipe_button.text = recipe_base_text
+		recipe_button.text = GameViews.get_hover_queue_button_text(
+			recipe_base_text,
+			recipe_button.is_hovered(),
+			is_ctrl_pressed,
+			is_shift_pressed,
+			free_queue_slots
+		)
 
 	for craftable_id in processing_station_cards.keys():
 		var station_card: Dictionary = processing_station_cards[craftable_id]
@@ -1083,16 +1080,14 @@ func _refresh_queue_button_hover_previews() -> void:
 				continue
 
 			var fuel_base_text := _get_resource_name(fuel_item_id)
-			if not fuel_button.is_hovered():
-				fuel_button.text = fuel_base_text
-				continue
-
-			if Input.is_key_pressed(KEY_CTRL):
-				fuel_button.text = "+%d" % _get_free_queue_slots()
-			elif Input.is_key_pressed(KEY_SHIFT):
-				fuel_button.text = "+5"
-			else:
-				fuel_button.text = fuel_base_text
+			fuel_button.text = GameViews.get_hover_queue_button_text(
+				fuel_base_text,
+				fuel_button.is_hovered(),
+				is_ctrl_pressed,
+				is_shift_pressed,
+				free_queue_slots,
+				true
+			)
 
 
 func _get_queue_button_tooltip() -> String:
@@ -1116,11 +1111,7 @@ func _update_gather_bars() -> void:
 	for resource_id in gatherable_order:
 		var card: Dictionary = resource_cards[resource_id]
 		var bar: ProgressBar = card["gather_bar"]
-		if _is_current_gather_action(resource_id):
-			var duration := maxf(0.001, float(current_action["duration"]))
-			bar.value = clampf((float(current_action["elapsed"]) / duration) * 100.0, 0.0, 100.0)
-		else:
-			bar.value = 0.0
+		bar.value = GameViews.get_gather_progress_value(resource_id, current_action)
 
 
 func _get_gather_action_duration(resource_id: String) -> float:
@@ -1155,41 +1146,25 @@ func _estimate_queue_time_left() -> float:
 
 func _refresh_skill_row(skill_id: String) -> void:
 	var row: Dictionary = skill_rows[skill_id]
-	var skill_level := _get_skill_level(skill_id)
-	var skill_exp := _get_skill_exp(skill_id)
-	var skill_exp_to_next := _get_skill_exp_to_next(skill_id)
 	var panel: PanelContainer = row["panel"]
 	var skill_label: Label = row["skill_label"]
 	var exp_label: Label = row["exp_label"]
 	var exp_bar: ProgressBar = row["exp_bar"]
-	var is_active := skill_id == _get_active_skill_id()
+	var view := GameViews.get_skill_row_view(skill_id, _build_data_context(), skill_states, _get_active_skill_id())
 
-	skill_label.text = "%s Lv %d" % [_get_skill_name(skill_id), skill_level]
-	exp_label.text = "%d / %d" % [skill_exp, skill_exp_to_next]
-	exp_bar.value = float(skill_exp) / float(skill_exp_to_next) * 100.0
-	panel.add_theme_stylebox_override("panel", _make_skill_card_style(is_active))
-	skill_label.add_theme_color_override("font_color", Color(1, 1, 1, 1) if is_active else Color(0.82, 0.82, 0.82, 1))
-	exp_label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9, 1) if is_active else Color(0.65, 0.65, 0.65, 1))
+	skill_label.text = view["skill_label_text"]
+	exp_label.text = view["exp_label_text"]
+	exp_bar.value = view["exp_progress"]
+	panel.add_theme_stylebox_override("panel", view["panel_style"])
+	skill_label.add_theme_color_override("font_color", view["skill_label_color"])
+	exp_label.add_theme_color_override("font_color", view["exp_label_color"])
 
 
 func _refresh_skill_context_label() -> void:
 	if skill_context_label == null:
 		return
 
-	skill_context_label.text = _get_skill_context_text()
-
-
-func _get_skill_context_text() -> String:
-	var active_skill_id := _get_active_skill_id()
-	if active_skill_id == "":
-		return "Upgrades improve gathering speed, bag size, and queue size across skills."
-
-	if active_skill_id == "crafting":
-		return "Crafting levels up by making tools and buildables."
-	if active_skill_id == "cooking":
-		return "Cooking levels up by processing meals like Cook Rabbit."
-
-	return "%s: %s" % [_get_skill_name(active_skill_id), _get_next_unlock_text_for_skill(active_skill_id)]
+	skill_context_label.text = GameViews.get_skill_context_text(_get_active_skill_id(), _build_data_context(), skill_states)
 
 
 func _get_active_skill_id() -> String:
@@ -1197,29 +1172,12 @@ func _get_active_skill_id() -> String:
 		return ""
 
 	var active_tab_title := main_tabs.get_tab_title(main_tabs.current_tab)
-	if active_tab_title == "Tools" or active_tab_title == "Buildables":
-		return "crafting"
-	if active_tab_title != "Gatherables":
-		return ""
+	var active_gather_skill_id := ""
 	if gatherable_skill_tabs == null or gatherable_skill_tabs.get_tab_count() == 0:
-		return ""
+		return GameViews.get_active_skill_id(active_tab_title, active_gather_skill_id)
 
-	return String(gatherable_skill_tabs.get_child(gatherable_skill_tabs.current_tab).name)
-
-
-func _make_skill_card_style(is_active: bool) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.21, 0.21, 0.21, 1) if is_active else Color(0.16, 0.16, 0.16, 1)
-	style.border_width_left = 1
-	style.border_width_top = 1
-	style.border_width_right = 1
-	style.border_width_bottom = 1
-	style.border_color = Color(0.75, 0.75, 0.75, 0.95) if is_active else Color(0.24, 0.24, 0.24, 1)
-	style.corner_radius_top_left = 4
-	style.corner_radius_top_right = 4
-	style.corner_radius_bottom_right = 4
-	style.corner_radius_bottom_left = 4
-	return style
+	active_gather_skill_id = String(gatherable_skill_tabs.get_child(gatherable_skill_tabs.current_tab).name)
+	return GameViews.get_active_skill_id(active_tab_title, active_gather_skill_id)
 
 
 func _on_main_tab_changed(_tab: int) -> void:
@@ -1232,18 +1190,6 @@ func _on_gatherable_skill_tab_changed(_tab: int) -> void:
 	_refresh_skill_context_label()
 	for skill_id in skill_order:
 		_refresh_skill_row(skill_id)
-
-
-func _get_next_unlock_text_for_skill(skill_id: String) -> String:
-	for resource_id in gatherable_order:
-		if _get_resource_skill_id(resource_id) != skill_id:
-			continue
-
-		var unlock_level := _get_unlock_level(resource_id)
-		if _get_skill_level(skill_id) < unlock_level:
-			return "Next: %s Lv %d" % [_get_resource_name(resource_id), unlock_level]
-
-	return "All unlocked"
 
 
 func _get_capacity(resource_id: String) -> int:
@@ -1316,14 +1262,6 @@ func _get_skill_name(skill_id: String) -> String:
 
 func _get_skill_level(skill_id: String) -> int:
 	return int(skill_states[skill_id]["level"])
-
-
-func _get_skill_exp(skill_id: String) -> int:
-	return int(skill_states[skill_id]["exp"])
-
-
-func _get_skill_exp_to_next(skill_id: String) -> int:
-	return int(skill_states[skill_id]["exp_to_next"])
 
 
 func _get_skill_level_speed_multiplier(level_value: int) -> float:
