@@ -1,5 +1,7 @@
 extends RefCounted
 
+const GameData = preload("res://scripts/game_data.gd")
+
 
 static func get_action_duration_for_state(action: Dictionary, state: Dictionary, rules: Dictionary) -> float:
 	var action_type := _get_action_type(action)
@@ -75,11 +77,7 @@ static func simulate_exp_gain(level_value: int, exp_value: int, exp_to_next_valu
 
 
 static func get_item_fuel_units(item_id: String, rules: Dictionary) -> int:
-	if not rules["items"].has(item_id):
-		return 0
-
-	var item: Dictionary = rules["items"][item_id]
-	return int(item.get("fuel_units", 0))
+	return GameData.get_item_fuel_units(item_id, rules)
 
 
 static func get_skill_level_speed_multiplier(level_value: int, rules: Dictionary) -> float:
@@ -350,19 +348,11 @@ static func _get_action_fuel_item_id(action: Dictionary) -> String:
 
 
 static func _get_resource_skill_id(resource_id: String, rules: Dictionary) -> String:
-	if not rules["gatherables"].has(resource_id):
-		return "crafting"
-
-	var gatherable: Dictionary = rules["gatherables"][resource_id]
-	return String(gatherable.get("skill", "gathering"))
+	return GameData.get_resource_skill_id(resource_id, rules)
 
 
 static func _get_gather_output_item_id(resource_id: String, rules: Dictionary) -> String:
-	if not rules["gatherables"].has(resource_id):
-		return resource_id
-
-	var gatherable: Dictionary = rules["gatherables"][resource_id]
-	return String(gatherable.get("output_item", resource_id))
+	return GameData.get_gather_output_item_id(resource_id, rules)
 
 
 static func _get_capacity(resource_id: String, rules: Dictionary) -> int:
@@ -374,96 +364,67 @@ static func _get_capacity(resource_id: String, rules: Dictionary) -> int:
 
 
 static func _get_resource_xp(resource_id: String, rules: Dictionary) -> int:
-	if not rules["gatherables"].has(resource_id):
-		return 0
-
-	var gatherable: Dictionary = rules["gatherables"][resource_id]
-	return int(gatherable["xp"])
+	return GameData.get_resource_xp(resource_id, rules)
 
 
 static func _get_unlock_level(resource_id: String, rules: Dictionary) -> int:
-	var gatherable: Dictionary = rules["gatherables"][resource_id]
-	return int(gatherable["unlock_level"])
+	return GameData.get_unlock_level(resource_id, rules)
 
 
 static func _get_resource_name(resource_id: String, rules: Dictionary) -> String:
-	if rules["items"].has(resource_id):
-		var item: Dictionary = rules["items"][resource_id]
-		return String(item["name"])
-
-	var gatherable: Dictionary = rules["gatherables"][resource_id]
-	return String(gatherable["name"])
+	return GameData.get_resource_name(resource_id, rules)
 
 
 static func _get_skill_name(skill_id: String, rules: Dictionary) -> String:
-	var skill: Dictionary = rules["skill_definitions"][skill_id]
-	return String(skill["name"])
+	return GameData.get_skill_name(skill_id, rules)
 
 
 static func _get_required_tool_id(resource_id: String, rules: Dictionary) -> String:
-	var gatherable: Dictionary = rules["gatherables"][resource_id]
-	if not gatherable.has("required_tool"):
-		return ""
-
-	return String(gatherable["required_tool"])
+	return GameData.get_required_tool_id(resource_id, rules)
 
 
 static func _get_tool_durability_cost(resource_id: String, rules: Dictionary) -> int:
-	var gatherable: Dictionary = rules["gatherables"][resource_id]
-	if not gatherable.has("tool_durability_cost"):
-		return 0
-
-	return int(gatherable["tool_durability_cost"])
+	return GameData.get_tool_durability_cost(resource_id, rules)
 
 
 static func _get_tool_name(tool_id: String, rules: Dictionary) -> String:
-	var tool: Dictionary = rules["tool_definitions"][tool_id]
-	return String(tool["name"])
+	return GameData.get_tool_name(tool_id, rules)
 
 
 static func _get_tool_max_durability(tool_id: String, rules: Dictionary) -> int:
-	var tool: Dictionary = rules["tool_definitions"][tool_id]
-	return int(tool["max_durability"])
+	return GameData.get_tool_max_durability(tool_id, rules)
 
 
 static func _get_tool_craft_cost(tool_id: String, rules: Dictionary) -> Dictionary:
-	var tool: Dictionary = rules["tool_definitions"][tool_id]
-	return Dictionary(tool["craft_cost"]).duplicate(true)
+	return GameData.get_tool_craft_cost(tool_id, rules)
 
 
 static func _get_tool_craft_time(tool_id: String, rules: Dictionary) -> float:
-	var tool: Dictionary = rules["tool_definitions"][tool_id]
-	return float(tool["craft_time"])
+	return GameData.get_tool_craft_time(tool_id, rules)
 
 
 static func _get_tool_craft_xp(tool_id: String, rules: Dictionary) -> int:
-	var tool: Dictionary = rules["tool_definitions"][tool_id]
-	return int(tool["craft_xp"])
+	return GameData.get_tool_craft_xp(tool_id, rules)
 
 
 static func _get_craftable_name(craftable_id: String, rules: Dictionary) -> String:
-	var craftable: Dictionary = rules["craftables"][craftable_id]
-	return String(craftable["name"])
+	return GameData.get_craftable_name(craftable_id, rules)
 
 
 static func _get_craftable_craft_cost(craftable_id: String, rules: Dictionary) -> Dictionary:
-	var craftable: Dictionary = rules["craftables"][craftable_id]
-	return Dictionary(craftable["craft_cost"]).duplicate(true)
+	return GameData.get_craftable_craft_cost(craftable_id, rules)
 
 
 static func _get_craftable_craft_time(craftable_id: String, rules: Dictionary) -> float:
-	var craftable: Dictionary = rules["craftables"][craftable_id]
-	return float(craftable["craft_time"])
+	return GameData.get_craftable_craft_time(craftable_id, rules)
 
 
 static func _get_craftable_craft_xp(craftable_id: String, rules: Dictionary) -> int:
-	var craftable: Dictionary = rules["craftables"][craftable_id]
-	return int(craftable["craft_xp"])
+	return GameData.get_craftable_craft_xp(craftable_id, rules)
 
 
 static func _get_craftable_max_count(craftable_id: String, rules: Dictionary) -> int:
-	var craftable: Dictionary = rules["craftables"][craftable_id]
-	return int(craftable.get("max_count", 999999))
+	return GameData.get_craftable_max_count(craftable_id, rules)
 
 
 static func _get_craftable_upgrade_cost(craftable_id: String, from_level: int, rules: Dictionary) -> Dictionary:
@@ -477,43 +438,35 @@ static func _get_craftable_upgrade_cost(craftable_id: String, from_level: int, r
 
 
 static func _get_craftable_upgrade_cost_multiplier(craftable_id: String, rules: Dictionary) -> float:
-	var craftable: Dictionary = rules["craftables"][craftable_id]
-	return float(craftable.get("upgrade_cost_multiplier", 1.3))
+	return GameData.get_craftable_upgrade_cost_multiplier(craftable_id, rules)
 
 
 static func _get_craftable_station_speed_multiplier(craftable_id: String, rules: Dictionary) -> float:
-	var craftable: Dictionary = rules["craftables"][craftable_id]
-	return float(craftable.get("station_speed_multiplier", 0.85))
+	return GameData.get_craftable_station_speed_multiplier(craftable_id, rules)
 
 
 static func _get_station_fuel_capacity(craftable_id: String, rules: Dictionary) -> int:
-	var craftable: Dictionary = rules["craftables"][craftable_id]
-	return int(craftable.get("fuel_capacity", 0))
+	return GameData.get_station_fuel_capacity(craftable_id, rules)
 
 
 static func _get_recipe_station_id(recipe_id: String, rules: Dictionary) -> String:
-	var recipe: Dictionary = rules["recipes"][recipe_id]
-	return String(recipe.get("station", ""))
+	return GameData.get_recipe_station_id(recipe_id, rules)
 
 
 static func _get_recipe_craft_cost(recipe_id: String, rules: Dictionary) -> Dictionary:
-	var recipe: Dictionary = rules["recipes"][recipe_id]
-	return Dictionary(recipe.get("craft_cost", {})).duplicate(true)
+	return GameData.get_recipe_craft_cost(recipe_id, rules)
 
 
 static func _get_recipe_craft_xp(recipe_id: String, rules: Dictionary) -> int:
-	var recipe: Dictionary = rules["recipes"][recipe_id]
-	return int(recipe.get("craft_xp", 0))
+	return GameData.get_recipe_craft_xp(recipe_id, rules)
 
 
 static func _get_recipe_skill_id(recipe_id: String, rules: Dictionary) -> String:
-	var recipe: Dictionary = rules["recipes"][recipe_id]
-	return String(recipe.get("skill", "crafting"))
+	return GameData.get_recipe_skill_id(recipe_id, rules)
 
 
 static func _get_recipe_fuel_cost_units(recipe_id: String, rules: Dictionary) -> int:
-	var recipe: Dictionary = rules["recipes"][recipe_id]
-	return int(recipe.get("fuel_cost_units", 0))
+	return GameData.get_recipe_fuel_cost_units(recipe_id, rules)
 
 
 static func _format_cost(cost: Dictionary, rules: Dictionary) -> String:

@@ -1,5 +1,6 @@
 extends Control
 
+const GameData = preload("res://scripts/game_data.gd")
 const GameRules = preload("res://scripts/game_rules.gd")
 
 var game_title := "Idle Gatherer"
@@ -237,22 +238,35 @@ func _initialize_state() -> void:
 	is_queue_paused = false
 
 
-func _build_rules_context() -> Dictionary:
+func _build_data_context() -> Dictionary:
 	return {
+		"skill_order": skill_order,
+		"skill_definitions": skill_definitions,
+		"gatherable_order": gatherable_order,
+		"gatherables": gatherables,
+		"item_order": item_order,
+		"items": items,
+		"tool_order": tool_order,
+		"tool_definitions": tool_definitions,
+		"craftable_order": craftable_order,
+		"craftables": craftables,
+		"recipe_order": recipe_order,
+		"recipes": recipes,
+	}
+
+
+func _build_rules_context() -> Dictionary:
+	var data_context := _build_data_context()
+	data_context.merge({
 		"exp_growth": exp_growth,
 		"level_speed_multiplier": level_speed_multiplier,
 		"speed_upgrade_multiplier": speed_upgrade_multiplier,
 		"min_gather_time": min_gather_time,
 		"bag_capacity_per_upgrade": bag_capacity_per_upgrade,
 		"upgrade_levels": upgrade_levels,
-		"inventory_item_order": _get_inventory_item_order(),
-		"skill_definitions": skill_definitions,
-		"gatherables": gatherables,
-		"items": items,
-		"tool_definitions": tool_definitions,
-		"craftables": craftables,
-		"recipes": recipes,
-	}
+		"inventory_item_order": GameData.get_inventory_item_order(data_context),
+	}, true)
+	return data_context
 
 
 func _process(delta: float) -> void:
@@ -1855,101 +1869,51 @@ func _get_queue_capacity() -> int:
 
 
 func _get_resource_xp(resource_id: String) -> int:
-	if not gatherables.has(resource_id):
-		return 0
-
-	var gatherable: Dictionary = gatherables[resource_id]
-	return int(gatherable["xp"])
+	return GameData.get_resource_xp(resource_id, _build_data_context())
 
 
 func _get_unlock_level(resource_id: String) -> int:
-	var gatherable: Dictionary = gatherables[resource_id]
-	return int(gatherable["unlock_level"])
+	return GameData.get_unlock_level(resource_id, _build_data_context())
 
 
 func _get_resource_name(resource_id: String) -> String:
-	if items.has(resource_id):
-		var item: Dictionary = items[resource_id]
-		return String(item["name"])
-
-	var gatherable: Dictionary = gatherables[resource_id]
-	return String(gatherable["name"])
+	return GameData.get_resource_name(resource_id, _build_data_context())
 
 
 func _get_item_description(item_id: String) -> String:
-	if not items.has(item_id):
-		return ""
-
-	var item: Dictionary = items[item_id]
-	return String(item.get("description", ""))
+	return GameData.get_item_description(item_id, _build_data_context())
 
 
 func _get_item_fuel_units(item_id: String) -> int:
-	return GameRules.get_item_fuel_units(item_id, _build_rules_context())
+	return GameData.get_item_fuel_units(item_id, _build_data_context())
 
 
 func _get_resource_skill_id(resource_id: String) -> String:
-	if not gatherables.has(resource_id):
-		return "crafting"
-
-	var gatherable: Dictionary = gatherables[resource_id]
-	return String(gatherable.get("skill", "gathering"))
+	return GameData.get_resource_skill_id(resource_id, _build_data_context())
 
 
 func _get_gather_output_item_id(resource_id: String) -> String:
-	if not gatherables.has(resource_id):
-		return resource_id
-
-	var gatherable: Dictionary = gatherables[resource_id]
-	return String(gatherable.get("output_item", resource_id))
+	return GameData.get_gather_output_item_id(resource_id, _build_data_context())
 
 
 func _get_inventory_item_order() -> Array:
-	var inventory_item_order: Array = []
-	for item_id in item_order:
-		if not inventory_item_order.has(item_id):
-			inventory_item_order.append(item_id)
-	for resource_id in gatherable_order:
-		if not inventory_item_order.has(resource_id):
-			inventory_item_order.append(resource_id)
-
-	return inventory_item_order
+	return GameData.get_inventory_item_order(_build_data_context())
 
 
 func _get_processing_summary_item_ids() -> Array:
-	var summary_item_ids: Array = []
-	for item_id in item_order:
-		if gatherables.has(item_id):
-			continue
-		summary_item_ids.append(item_id)
-
-	return summary_item_ids
+	return GameData.get_processing_summary_item_ids(_build_data_context())
 
 
 func _get_burnable_item_ids() -> Array:
-	var burnable_item_ids: Array = []
-	for item_id in item_order:
-		if _get_item_fuel_units(item_id) <= 0:
-			continue
-		burnable_item_ids.append(item_id)
-
-	return burnable_item_ids
+	return GameData.get_burnable_item_ids(_build_data_context())
 
 
 func _get_required_tool_id(resource_id: String) -> String:
-	var gatherable: Dictionary = gatherables[resource_id]
-	if not gatherable.has("required_tool"):
-		return ""
-
-	return String(gatherable["required_tool"])
+	return GameData.get_required_tool_id(resource_id, _build_data_context())
 
 
 func _get_tool_durability_cost(resource_id: String) -> int:
-	var gatherable: Dictionary = gatherables[resource_id]
-	if not gatherable.has("tool_durability_cost"):
-		return 0
-
-	return int(gatherable["tool_durability_cost"])
+	return GameData.get_tool_durability_cost(resource_id, _build_data_context())
 
 
 func _resource_requires_tool(resource_id: String) -> bool:
@@ -1961,8 +1925,7 @@ func _is_resource_unlocked(resource_id: String) -> bool:
 
 
 func _get_skill_name(skill_id: String) -> String:
-	var skill: Dictionary = skill_definitions[skill_id]
-	return String(skill["name"])
+	return GameData.get_skill_name(skill_id, _build_data_context())
 
 
 func _get_skill_level(skill_id: String) -> int:
@@ -1990,46 +1953,31 @@ func _get_resource_unlock_requirement_text(resource_id: String) -> String:
 
 
 func _skill_has_gatherables(skill_id: String) -> bool:
-	for resource_id in gatherable_order:
-		if _get_resource_skill_id(resource_id) == skill_id:
-			return true
-
-	return false
+	return GameData.skill_has_gatherables(skill_id, _build_data_context())
 
 
 func _get_gatherable_skill_ids() -> Array:
-	var ids: Array = []
-	for skill_id in skill_order:
-		var skill: Dictionary = skill_definitions[skill_id]
-		if bool(skill.get("gatherable_tab", false)) and _skill_has_gatherables(skill_id):
-			ids.append(skill_id)
-
-	return ids
+	return GameData.get_gatherable_skill_ids(_build_data_context())
 
 
 func _get_tool_name(tool_id: String) -> String:
-	var tool: Dictionary = tool_definitions[tool_id]
-	return String(tool["name"])
+	return GameData.get_tool_name(tool_id, _build_data_context())
 
 
 func _get_tool_max_durability(tool_id: String) -> int:
-	var tool: Dictionary = tool_definitions[tool_id]
-	return int(tool["max_durability"])
+	return GameData.get_tool_max_durability(tool_id, _build_data_context())
 
 
 func _get_tool_craft_cost(tool_id: String) -> Dictionary:
-	var tool: Dictionary = tool_definitions[tool_id]
-	return Dictionary(tool["craft_cost"])
+	return GameData.get_tool_craft_cost(tool_id, _build_data_context())
 
 
 func _get_tool_craft_time(tool_id: String) -> float:
-	var tool: Dictionary = tool_definitions[tool_id]
-	return float(tool["craft_time"])
+	return GameData.get_tool_craft_time(tool_id, _build_data_context())
 
 
 func _get_tool_craft_xp(tool_id: String) -> int:
-	var tool: Dictionary = tool_definitions[tool_id]
-	return int(tool["craft_xp"])
+	return GameData.get_tool_craft_xp(tool_id, _build_data_context())
 
 
 func _get_tool_durability(tool_id: String) -> int:
@@ -2037,33 +1985,27 @@ func _get_tool_durability(tool_id: String) -> int:
 
 
 func _get_tool_use_text(tool_id: String) -> String:
-	var tool: Dictionary = tool_definitions[tool_id]
-	return String(tool.get("use_text", ""))
+	return GameData.get_tool_use_text(tool_id, _build_data_context())
 
 
 func _get_craftable_name(craftable_id: String) -> String:
-	var craftable: Dictionary = craftables[craftable_id]
-	return String(craftable["name"])
+	return GameData.get_craftable_name(craftable_id, _build_data_context())
 
 
 func _get_craftable_craft_cost(craftable_id: String) -> Dictionary:
-	var craftable: Dictionary = craftables[craftable_id]
-	return Dictionary(craftable["craft_cost"])
+	return GameData.get_craftable_craft_cost(craftable_id, _build_data_context())
 
 
 func _get_craftable_craft_time(craftable_id: String) -> float:
-	var craftable: Dictionary = craftables[craftable_id]
-	return float(craftable["craft_time"])
+	return GameData.get_craftable_craft_time(craftable_id, _build_data_context())
 
 
 func _get_craftable_craft_xp(craftable_id: String) -> int:
-	var craftable: Dictionary = craftables[craftable_id]
-	return int(craftable["craft_xp"])
+	return GameData.get_craftable_craft_xp(craftable_id, _build_data_context())
 
 
 func _get_craftable_use_text(craftable_id: String) -> String:
-	var craftable: Dictionary = craftables[craftable_id]
-	return String(craftable.get("use_text", ""))
+	return GameData.get_craftable_use_text(craftable_id, _build_data_context())
 
 
 func _get_crafted_item_count(craftable_id: String) -> int:
@@ -2071,8 +2013,7 @@ func _get_crafted_item_count(craftable_id: String) -> int:
 
 
 func _get_craftable_max_count(craftable_id: String) -> int:
-	var craftable: Dictionary = craftables[craftable_id]
-	return int(craftable.get("max_count", 999999))
+	return GameData.get_craftable_max_count(craftable_id, _build_data_context())
 
 
 func _get_craftable_upgrade_level(craftable_id: String) -> int:
@@ -2101,18 +2042,15 @@ func _get_craftable_upgrade_cost(craftable_id: String, from_level: int = -1) -> 
 
 
 func _get_craftable_upgrade_cost_multiplier(craftable_id: String) -> float:
-	var craftable: Dictionary = craftables[craftable_id]
-	return float(craftable.get("upgrade_cost_multiplier", 1.3))
+	return GameData.get_craftable_upgrade_cost_multiplier(craftable_id, _build_data_context())
 
 
 func _get_craftable_station_speed_multiplier(craftable_id: String) -> float:
-	var craftable: Dictionary = craftables[craftable_id]
-	return float(craftable.get("station_speed_multiplier", 0.85))
+	return GameData.get_craftable_station_speed_multiplier(craftable_id, _build_data_context())
 
 
 func _get_station_fuel_capacity(craftable_id: String) -> int:
-	var craftable: Dictionary = craftables[craftable_id]
-	return int(craftable.get("fuel_capacity", 0))
+	return GameData.get_station_fuel_capacity(craftable_id, _build_data_context())
 
 
 func _get_station_stored_fuel_units(craftable_id: String) -> int:
@@ -2124,18 +2062,15 @@ func _get_craftable_speed_multiplier(craftable_id: String) -> float:
 
 
 func _get_recipe_name(recipe_id: String) -> String:
-	var recipe: Dictionary = recipes[recipe_id]
-	return String(recipe["name"])
+	return GameData.get_recipe_name(recipe_id, _build_data_context())
 
 
 func _get_recipe_station_id(recipe_id: String) -> String:
-	var recipe: Dictionary = recipes[recipe_id]
-	return String(recipe.get("station", ""))
+	return GameData.get_recipe_station_id(recipe_id, _build_data_context())
 
 
 func _get_recipe_craft_cost(recipe_id: String) -> Dictionary:
-	var recipe: Dictionary = recipes[recipe_id]
-	return _build_cost(Dictionary(recipe.get("craft_cost", {})))
+	return _build_cost(GameData.get_recipe_craft_cost(recipe_id, _build_data_context()))
 
 
 func _get_recipe_outputs(recipe_id: String) -> Dictionary:
@@ -2147,18 +2082,15 @@ func _get_recipe_craft_time(recipe_id: String) -> float:
 
 
 func _get_recipe_craft_xp(recipe_id: String) -> int:
-	var recipe: Dictionary = recipes[recipe_id]
-	return int(recipe.get("craft_xp", 0))
+	return GameData.get_recipe_craft_xp(recipe_id, _build_data_context())
 
 
 func _get_recipe_skill_id(recipe_id: String) -> String:
-	var recipe: Dictionary = recipes[recipe_id]
-	return String(recipe.get("skill", "crafting"))
+	return GameData.get_recipe_skill_id(recipe_id, _build_data_context())
 
 
 func _get_recipe_fuel_cost_units(recipe_id: String) -> int:
-	var recipe: Dictionary = recipes[recipe_id]
-	return int(recipe.get("fuel_cost_units", 0))
+	return GameData.get_recipe_fuel_cost_units(recipe_id, _build_data_context())
 
 
 func _get_recipe_source_fuel_units(recipe_id: String) -> int:
