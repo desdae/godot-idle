@@ -13,8 +13,7 @@ const GameRules = preload("res://scripts/game_rules.gd")
 const GameRuntime = preload("res://scripts/game_runtime.gd")
 const GameState = preload("res://scripts/game_state.gd")
 const GameUiBuilder = preload("res://scripts/game_ui_builder.gd")
-const GameUiRefresh = preload("res://scripts/game_ui_refresh.gd")
-const GameViews = preload("res://scripts/game_views.gd")
+const GameUiController = preload("res://scripts/game_ui_controller.gd")
 
 var game_title := "Idle Gatherer"
 var game_subtitle := "Gather, craft a Stone Axe for Logs, and spend resources on stronger tools, bigger bags, and longer queues."
@@ -282,6 +281,53 @@ func _build_rules_context() -> Dictionary:
 	return data_context
 
 
+func _build_ui_controller_context() -> Dictionary:
+	return {
+		"data": _build_data_context(),
+		"rules": _build_rules_context(),
+		"simulation_state": _create_simulation_state(),
+		"skill_order": skill_order,
+		"gatherable_order": gatherable_order,
+		"tool_order": tool_order,
+		"craftable_order": craftable_order,
+		"recipe_order": recipe_order,
+		"upgrade_order": upgrade_order,
+		"upgrades": upgrades,
+		"inventory": inventory,
+		"tools": tools,
+		"crafted_items": crafted_items,
+		"craftable_upgrade_levels": craftable_upgrade_levels,
+		"stored_fuel_units": stored_fuel_units,
+		"action_queue": action_queue,
+		"current_action": current_action,
+		"is_queue_paused": is_queue_paused,
+		"skill_states": skill_states,
+		"upgrade_levels": upgrade_levels,
+		"bag_capacity_per_upgrade": bag_capacity_per_upgrade,
+		"base_queue_size": base_queue_size,
+		"queue_size_per_upgrade": queue_size_per_upgrade,
+		"speed_upgrade_multiplier": speed_upgrade_multiplier,
+		"resource_cards": resource_cards,
+		"upgrade_cards": upgrade_cards,
+		"skill_rows": skill_rows,
+		"current_action_label": current_action_label,
+		"queue_summary_label": queue_summary_label,
+		"queue_time_left_label": queue_time_left_label,
+		"queue_list": queue_list,
+		"clear_queue_button": clear_queue_button,
+		"pause_queue_button": pause_queue_button,
+		"skill_context_label": skill_context_label,
+		"main_tabs": main_tabs,
+		"gatherable_skill_tabs": gatherable_skill_tabs,
+		"tool_cards": tool_cards,
+		"craftable_cards": craftable_cards,
+		"recipe_cards": recipe_cards,
+		"item_labels": item_labels,
+		"processing_station_cards": processing_station_cards,
+		"processing_station_expanded": processing_station_expanded,
+	}
+
+
 func _process(delta: float) -> void:
 	if toast_panel != null and toast_panel.visible:
 		toast_time_left = maxf(0.0, toast_time_left - delta)
@@ -302,8 +348,9 @@ func _process(delta: float) -> void:
 		if elapsed >= duration:
 			current_action_completion_pending = true
 
-	_refresh_runtime_status()
-	_refresh_queue_button_hover_previews()
+	var ui_context := _build_ui_controller_context()
+	GameUiController.refresh_runtime_status(ui_context)
+	GameUiController.refresh_queue_button_hover_previews(ui_context)
 
 
 func _build_ui() -> void:
@@ -693,7 +740,7 @@ func _queue_station_fuel(craftable_id: String, item_id: String) -> void:
 
 func _toggle_processing_station(craftable_id: String) -> void:
 	GameCommands.toggle_processing_station(processing_station_expanded, craftable_id)
-	_refresh_recipe_panel()
+	_refresh_ui()
 
 
 func _queue_action_count(action: Dictionary, amount: int) -> void:
@@ -776,359 +823,24 @@ func _apply_live_state(state: Dictionary) -> void:
 
 
 func _refresh_ui() -> void:
-	for skill_id in skill_order:
-		_refresh_skill_row(skill_id)
-	_refresh_skill_context_label()
-
-	GameUiRefresh.refresh_queue_list(queue_list, current_action, action_queue, _build_data_context())
-	GameUiRefresh.refresh_queue_controls(clear_queue_button, pause_queue_button, is_queue_paused, current_action, action_queue)
-	_refresh_tool_panel()
-	_refresh_craftable_panel()
-	_refresh_recipe_panel()
-	_refresh_item_summary()
-
-	for resource_id in gatherable_order:
-		_refresh_resource_card(resource_id)
-
-	for upgrade_id in upgrade_order:
-		_refresh_upgrade_card(upgrade_id)
-
-	_refresh_runtime_status()
+	GameUiController.refresh_ui(_build_ui_controller_context())
 
 
-func _refresh_resource_card(resource_id: String) -> void:
-	var view := GameViews.get_resource_card_view(
-		resource_id,
-		_build_data_context(),
-		upgrade_levels,
-		bag_capacity_per_upgrade,
-		inventory,
-		skill_states,
-		current_action,
-		GameQueries.get_gather_queue_block_reason(
-			resource_id,
-			action_queue,
-			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
-			current_action,
-			_create_simulation_state(),
-			_build_rules_context()
-		),
-		GameQueries.get_gather_action_duration(resource_id, _create_simulation_state(), _build_rules_context()),
-		_get_queue_button_tooltip()
-	)
-	GameUiRefresh.apply_resource_card(resource_cards[resource_id], view)
-
-
-func _refresh_tool_panel() -> void:
-	for tool_id in tool_order:
-		_refresh_tool_card(tool_id)
-
-
-func _refresh_craftable_panel() -> void:
-	for craftable_id in craftable_order:
-		_refresh_craftable_card(craftable_id)
-
-
-func _refresh_recipe_panel() -> void:
-	for craftable_id in craftable_order:
-		if not processing_station_cards.has(craftable_id):
-			continue
-
-		var station_card: Dictionary = processing_station_cards[craftable_id]
-		var fuel_buttons: Dictionary = station_card["fuel_buttons"]
-		var is_expanded := bool(processing_station_expanded.get(craftable_id, true))
-		var station_view := GameViews.get_station_status_view(
-			craftable_id,
-			_build_data_context(),
-			crafted_items,
-			craftable_upgrade_levels,
-			stored_fuel_units,
-			is_expanded
-		)
-
-		var all_fuel_buttons_full := fuel_buttons.size() > 0 and bool(station_view["show_fuel_summary"])
-		var fuel_views := {}
-		for fuel_item_id in fuel_buttons.keys():
-			var fuel_block_reason := GameQueries.get_station_fuel_queue_block_reason(
-				craftable_id,
-				fuel_item_id,
-				action_queue,
-				GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
-				current_action,
-				_create_simulation_state(),
-				_build_rules_context()
-			)
-			fuel_views[fuel_item_id] = GameViews.get_fuel_button_view(
-				fuel_item_id,
-				_build_data_context(),
-				current_action,
-				craftable_id,
-				fuel_block_reason,
-				_get_queue_button_tooltip()
-			)
-			all_fuel_buttons_full = all_fuel_buttons_full and bool(fuel_views[fuel_item_id]["is_full"])
-
-		GameUiRefresh.apply_station_card(station_card, station_view, fuel_views, all_fuel_buttons_full)
-
-	for recipe_id in recipe_order:
-		_refresh_recipe_card(recipe_id)
-
-
-func _refresh_item_summary() -> void:
-	for item_id in _get_processing_summary_item_ids():
-		if not item_labels.has(item_id):
-			continue
-
-		var item_label: Label = item_labels[item_id]
-		GameUiRefresh.apply_item_summary(
-			item_label,
-			"%s: %d" % [_get_resource_name(item_id), int(inventory.get(item_id, 0))],
-			_get_item_description(item_id)
-		)
-
-
-func _refresh_tool_card(tool_id: String) -> void:
-	var view := GameViews.get_tool_card_view(
-		tool_id,
-		_build_data_context(),
-		tools,
-		inventory,
-		current_action,
-		GameState.get_current_action_time_left(current_action),
-		GameState.has_queued_action(action_queue, "craft_tool", tool_id),
-		GameQueries.get_tool_queue_block_reason(
-			tool_id,
-			action_queue,
-			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
-			current_action,
-			_create_simulation_state(),
-			_build_rules_context()
-		)
-	)
-	GameUiRefresh.apply_tool_card(tool_cards[tool_id], view)
-
-
-func _refresh_craftable_card(craftable_id: String) -> void:
-	var view := GameViews.get_craftable_card_view(
-		craftable_id,
-		_build_data_context(),
-		inventory,
-		crafted_items,
-		craftable_upgrade_levels,
-		current_action,
-		GameState.get_current_action_time_left(current_action),
-		GameQueries.get_craftable_queue_block_reason(
-			craftable_id,
-			action_queue,
-			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
-			current_action,
-			_create_simulation_state(),
-			_build_rules_context()
-		),
-		GameQueries.get_craftable_upgrade_queue_block_reason(
-			craftable_id,
-			action_queue,
-			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
-			current_action,
-			_create_simulation_state(),
-			_build_rules_context()
-		)
-	)
-	GameUiRefresh.apply_craftable_card(craftable_cards[craftable_id], view)
-
-
-func _refresh_recipe_card(recipe_id: String) -> void:
-	var card: Dictionary = recipe_cards.get(recipe_id, {})
-	if card.is_empty():
-		return
-
-	var is_processing_now := not current_action.is_empty() and _get_action_type(current_action) == "process_recipe" and _get_action_id(current_action) == recipe_id
-	var display_duration := maxf(0.001, float(current_action["duration"])) if is_processing_now else GameDomain.get_recipe_craft_time(
-		recipe_id,
-		_create_simulation_state(),
-		_build_rules_context()
-	)
-	var view := GameViews.get_recipe_card_view(
-		recipe_id,
-		_build_data_context(),
-		inventory,
-		crafted_items,
-		current_action,
-		GameState.get_current_action_time_left(current_action),
-		GameQueries.get_recipe_queue_block_reason(
-			recipe_id,
-			action_queue,
-			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
-			current_action,
-			_create_simulation_state(),
-			_build_rules_context()
-		),
-		display_duration,
-		GameDomain.get_recipe_craft_cost(recipe_id, _build_data_context()),
-		GameDomain.get_recipe_outputs(recipe_id, _build_rules_context()),
-		_get_queue_button_tooltip()
-	)
-	GameUiRefresh.apply_recipe_card(card, view)
-
-
-func _refresh_upgrade_card(upgrade_id: String) -> void:
-	var next_cost := GameDomain.get_upgrade_cost(upgrade_id, upgrade_levels, upgrades, _build_data_context())
-	var view := GameViews.get_upgrade_card_view(
-		upgrade_id,
-		_build_data_context(),
-		inventory,
-		upgrade_levels,
-		next_cost,
-		_get_upgrade_detail(upgrade_id),
-		GameDomain.can_afford(next_cost, inventory)
-	)
-	GameUiRefresh.apply_upgrade_card(upgrade_cards[upgrade_id], view)
-
-
-func _refresh_runtime_status() -> void:
-	var view := GameViews.get_runtime_status_view(
-		current_action,
-		is_queue_paused,
-		action_queue.size(),
-		GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
-		GameQueries.estimate_queue_time_left(
-			current_action,
-			action_queue,
-			_create_simulation_state(),
-			GameState.get_current_action_time_left(current_action),
-			_build_rules_context()
-		),
-		_build_data_context()
-	)
-	GameUiRefresh.apply_runtime_status(current_action_label, queue_summary_label, queue_time_left_label, view)
-	_update_gather_bars()
-
-
-func _refresh_queue_button_hover_previews() -> void:
-	var is_ctrl_pressed := Input.is_key_pressed(KEY_CTRL)
-	var is_shift_pressed := Input.is_key_pressed(KEY_SHIFT)
-	var free_queue_slots := GameQueries.get_free_queue_slots(
+func _get_requested_queue_amount() -> int:
+	return GameUiController.get_requested_queue_amount(
+		Input.is_key_pressed(KEY_CTRL),
+		Input.is_key_pressed(KEY_SHIFT),
 		action_queue.size(),
 		GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade)
 	)
 
-	for resource_id in gatherable_order:
-		var card: Dictionary = resource_cards[resource_id]
-		var queue_button: Button = card["queue_button"]
-		if queue_button.disabled:
-			continue
-
-		var is_current_action := GameState.is_current_action(current_action, "gather", resource_id)
-		var base_text := "Queue +1" if is_current_action else "Queue"
-		queue_button.tooltip_text = _get_queue_button_tooltip()
-		queue_button.text = GameViews.get_hover_queue_button_text(
-			base_text,
-			queue_button.is_hovered(),
-			is_ctrl_pressed,
-			is_shift_pressed,
-			free_queue_slots
-		)
-
-	for recipe_id in recipe_order:
-		if not recipe_cards.has(recipe_id):
-			continue
-
-		var recipe_card: Dictionary = recipe_cards[recipe_id]
-		var recipe_button: Button = recipe_card["button"]
-		if recipe_button.disabled:
-			continue
-
-		var is_current_recipe: bool = (
-			not current_action.is_empty()
-			and _get_action_type(current_action) == "process_recipe"
-			and _get_action_id(current_action) == recipe_id
-		)
-		var recipe_base_text := "Queue +1" if is_current_recipe else "Queue"
-		recipe_button.text = GameViews.get_hover_queue_button_text(
-			recipe_base_text,
-			recipe_button.is_hovered(),
-			is_ctrl_pressed,
-			is_shift_pressed,
-			free_queue_slots
-		)
-
-	for craftable_id in processing_station_cards.keys():
-		var station_card: Dictionary = processing_station_cards[craftable_id]
-		var fuel_buttons: Dictionary = station_card["fuel_buttons"]
-		for fuel_item_id in fuel_buttons.keys():
-			var fuel_button: Button = fuel_buttons[fuel_item_id]
-			if fuel_button.disabled:
-				continue
-
-			var fuel_base_text := _get_resource_name(fuel_item_id)
-			fuel_button.text = GameViews.get_hover_queue_button_text(
-				fuel_base_text,
-				fuel_button.is_hovered(),
-				is_ctrl_pressed,
-				is_shift_pressed,
-				free_queue_slots,
-				true
-			)
-
-
-func _get_queue_button_tooltip() -> String:
-	return GamePresentation.get_queue_button_tooltip()
-
-
-func _get_requested_queue_amount() -> int:
-	if Input.is_key_pressed(KEY_CTRL):
-		return GameQueries.get_free_queue_slots(
-			action_queue.size(),
-			GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade)
-		)
-	if Input.is_key_pressed(KEY_SHIFT):
-		return 5
-
-	return 1
-
-
-func _update_gather_bars() -> void:
-	for resource_id in gatherable_order:
-		var card: Dictionary = resource_cards[resource_id]
-		var bar: ProgressBar = card["gather_bar"]
-		bar.value = GameViews.get_gather_progress_value(resource_id, current_action)
-
-
-func _refresh_skill_row(skill_id: String) -> void:
-	var view := GameViews.get_skill_row_view(skill_id, _build_data_context(), skill_states, _get_active_skill_id())
-	GameUiRefresh.apply_skill_row(skill_rows[skill_id], view)
-
-
-func _refresh_skill_context_label() -> void:
-	if skill_context_label == null:
-		return
-
-	skill_context_label.text = GameViews.get_skill_context_text(_get_active_skill_id(), _build_data_context(), skill_states)
-
-
-func _get_active_skill_id() -> String:
-	if main_tabs == null or main_tabs.get_tab_count() == 0:
-		return ""
-
-	var active_tab_title := main_tabs.get_tab_title(main_tabs.current_tab)
-	var active_gather_skill_id := ""
-	if gatherable_skill_tabs == null or gatherable_skill_tabs.get_tab_count() == 0:
-		return GameViews.get_active_skill_id(active_tab_title, active_gather_skill_id)
-
-	active_gather_skill_id = String(gatherable_skill_tabs.get_child(gatherable_skill_tabs.current_tab).name)
-	return GameViews.get_active_skill_id(active_tab_title, active_gather_skill_id)
-
 
 func _on_main_tab_changed(_tab: int) -> void:
-	_refresh_skill_context_label()
-	for skill_id in skill_order:
-		_refresh_skill_row(skill_id)
+	GameUiController.refresh_skill_section(_build_ui_controller_context())
 
 
 func _on_gatherable_skill_tab_changed(_tab: int) -> void:
-	_refresh_skill_context_label()
-	for skill_id in skill_order:
-		_refresh_skill_row(skill_id)
+	GameUiController.refresh_skill_section(_build_ui_controller_context())
 
 
 func _get_capacity(resource_id: String) -> int:
@@ -1419,9 +1131,7 @@ func _focus_resource_gather_tab(resource_id: String) -> void:
 				gatherable_skill_tabs.current_tab = index
 				break
 
-	_refresh_skill_context_label()
-	for skill_id in skill_order:
-		_refresh_skill_row(skill_id)
+	GameUiController.refresh_skill_section(_build_ui_controller_context())
 
 
 func _queue_linked_resource_shortfall(item_id: String, required_amount: int) -> void:
