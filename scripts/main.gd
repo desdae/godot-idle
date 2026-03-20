@@ -7,6 +7,7 @@ const GamePresentation = preload("res://scripts/game_presentation.gd")
 const GameQueue = preload("res://scripts/game_queue.gd")
 const GameRules = preload("res://scripts/game_rules.gd")
 const GameRuntime = preload("res://scripts/game_runtime.gd")
+const GameViews = preload("res://scripts/game_views.gd")
 
 var game_title := "Idle Gatherer"
 var game_subtitle := "Gather, craft a Stone Axe for Logs, and spend resources on stronger tools, bigger bags, and longer queues."
@@ -1167,53 +1168,22 @@ func _refresh_resource_card(resource_id: String) -> void:
 	var card: Dictionary = resource_cards[resource_id]
 	var stats_label: Label = card["stats_label"]
 	var queue_button: Button = card["queue_button"]
-
-	var unlock_level := _get_unlock_level(resource_id)
-	var current_capacity := _get_capacity(resource_id)
-	var output_item_id := _get_gather_output_item_id(resource_id)
-	var is_current_action := _is_current_gather_action(resource_id)
-	var block_reason := _get_gather_queue_block_reason(resource_id)
-	var display_duration := _get_gather_action_duration(resource_id)
-
-	if not _is_resource_unlocked(resource_id):
-		stats_label.text = "Lv %d | %.2fs | %d XP | %d/%d" % [
-			unlock_level,
-			display_duration,
-			_get_resource_xp(resource_id),
-			int(inventory.get(output_item_id, 0)),
-			current_capacity,
-		]
-		queue_button.disabled = true
-		queue_button.text = "Locked"
-		queue_button.tooltip_text = ""
-		return
-
-	if is_current_action:
-		display_duration = maxf(0.001, float(current_action["duration"]))
-
-	if block_reason != "" and not is_current_action:
-		queue_button.disabled = true
-		queue_button.tooltip_text = ""
-		if block_reason.begins_with("Need "):
-			queue_button.text = block_reason
-		elif block_reason == "Full at end of queue":
-			queue_button.text = "Full"
-		elif block_reason == "Queue full":
-			queue_button.text = "Queue Full"
-		else:
-			queue_button.text = "Blocked"
-	else:
-		queue_button.disabled = false
-		queue_button.text = "Queue +1" if is_current_action else "Queue"
-		queue_button.tooltip_text = _get_queue_button_tooltip()
-
-	stats_label.text = "Lv %d | %.2fs | %d XP | %d/%d" % [
-		unlock_level,
-		display_duration,
-		_get_resource_xp(resource_id),
-		int(inventory.get(output_item_id, 0)),
-		current_capacity,
-	]
+	var view := GameViews.get_resource_card_view(
+		resource_id,
+		_build_data_context(),
+		upgrade_levels,
+		bag_capacity_per_upgrade,
+		inventory,
+		skill_states,
+		current_action,
+		_get_gather_queue_block_reason(resource_id),
+		_get_gather_action_duration(resource_id),
+		_get_queue_button_tooltip()
+	)
+	stats_label.text = view["stats_text"]
+	queue_button.text = view["button_text"]
+	queue_button.disabled = view["button_disabled"]
+	queue_button.tooltip_text = view["button_tooltip"]
 
 
 func _refresh_tool_panel() -> void:
@@ -1237,63 +1207,38 @@ func _refresh_recipe_panel() -> void:
 		var fuel_buttons: Dictionary = station_card["fuel_buttons"]
 		var fuel_state_label: Label = station_card["fuel_state_label"]
 		var recipes_box: VBoxContainer = station_card["recipes_box"]
-		var built_count := _get_crafted_item_count(craftable_id)
-		var station_level := _get_processing_station_level(craftable_id)
 		var is_expanded := bool(processing_station_expanded.get(craftable_id, true))
-		var fuel_capacity := _get_station_fuel_capacity(craftable_id)
-		var fuel_stored := _get_station_stored_fuel_units(craftable_id)
+		var station_view := GameViews.get_station_status_view(
+			craftable_id,
+			_build_data_context(),
+			crafted_items,
+			craftable_upgrade_levels,
+			stored_fuel_units,
+			is_expanded
+		)
+		toggle_button.text = station_view["toggle_text"]
+		recipes_box.visible = station_view["recipes_visible"]
+		station_status.text = station_view["status_text"]
 
-		toggle_button.text = "Collapse" if is_expanded else "Expand"
-		recipes_box.visible = is_expanded
-		if built_count <= 0:
-			station_status.text = "Build %s to unlock its recipes." % _get_craftable_name(craftable_id)
-		else:
-			if fuel_capacity > 0:
-				station_status.text = "Lv %d | Fuel %d/%d | %.0f%% faster station crafting" % [
-					station_level,
-					fuel_stored,
-					fuel_capacity,
-					(1.0 - _get_craftable_speed_multiplier(craftable_id)) * 100.0,
-				]
-			else:
-				station_status.text = "Lv %d | %.0f%% faster station crafting" % [
-					station_level,
-					(1.0 - _get_craftable_speed_multiplier(craftable_id)) * 100.0,
-				]
-
-		var all_fuel_buttons_full := fuel_buttons.size() > 0
+		var all_fuel_buttons_full := fuel_buttons.size() > 0 and bool(station_view["show_fuel_summary"])
 		for fuel_item_id in fuel_buttons.keys():
 			var fuel_button: Button = fuel_buttons[fuel_item_id]
-			var is_refueling_now: bool = (
-				not current_action.is_empty()
-				and _get_action_type(current_action) == "refuel_station"
-				and _get_action_station_id(current_action) == craftable_id
-				and _get_action_fuel_item_id(current_action) == fuel_item_id
-			)
 			var fuel_block_reason := _get_station_fuel_queue_block_reason(craftable_id, fuel_item_id)
-			var base_text := _get_resource_name(fuel_item_id)
-			all_fuel_buttons_full = all_fuel_buttons_full and fuel_block_reason == "Fuel full"
-
-			if is_refueling_now:
-				fuel_button.text = "Loading..."
-			elif fuel_block_reason == "Fuel full":
-				fuel_button.text = "Fuel Full"
-			elif fuel_block_reason == "No fuel space":
-				fuel_button.text = "No Space"
-			elif fuel_block_reason == "Queue full":
-				fuel_button.text = "Queue Full"
-			elif fuel_block_reason.begins_with("Need "):
-				fuel_button.text = fuel_block_reason
-			elif fuel_block_reason != "":
-				fuel_button.text = "Blocked"
-			else:
-				fuel_button.text = base_text
-
-			fuel_button.disabled = is_refueling_now or fuel_block_reason != ""
-			fuel_button.tooltip_text = _get_queue_button_tooltip() if not fuel_button.disabled else ""
+			var fuel_view := GameViews.get_fuel_button_view(
+				fuel_item_id,
+				_build_data_context(),
+				current_action,
+				craftable_id,
+				fuel_block_reason,
+				_get_queue_button_tooltip()
+			)
+			all_fuel_buttons_full = all_fuel_buttons_full and bool(fuel_view["is_full"])
+			fuel_button.text = fuel_view["button_text"]
+			fuel_button.disabled = fuel_view["button_disabled"]
+			fuel_button.tooltip_text = fuel_view["button_tooltip"]
 
 		if fuel_state_label != null:
-			var show_fuel_full_label := built_count > 0 and all_fuel_buttons_full
+			var show_fuel_full_label := all_fuel_buttons_full
 			fuel_state_label.visible = show_fuel_full_label
 			if show_fuel_full_label:
 				fuel_state_label.text = "Fuel Full"
@@ -1320,43 +1265,20 @@ func _refresh_tool_card(tool_id: String) -> void:
 	var status_label: Label = card["status_label"]
 	var detail_label: RichTextLabel = card["detail_label"]
 	var button: Button = card["button"]
-	var durability := _get_tool_durability(tool_id)
-	var max_durability := _get_tool_max_durability(tool_id)
-	var is_crafting_now := not current_action.is_empty() and _get_action_type(current_action) == "craft_tool" and _get_action_id(current_action) == tool_id
-	var is_crafting_queued := _has_queued_action("craft_tool", tool_id)
-	var block_reason := _get_tool_queue_block_reason(tool_id)
-
-	if is_crafting_now:
-		status_label.text = "%s: Crafting (%s left)" % [
-			_get_tool_name(tool_id),
-			_format_seconds(_get_current_action_time_left()),
-		]
-	elif durability > 0:
-		status_label.text = "%s: %d / %d durability" % [
-			_get_tool_name(tool_id),
-			durability,
-			max_durability,
-		]
-	else:
-		status_label.text = "%s: Not crafted" % _get_tool_name(tool_id)
-
-	detail_label.text = _format_recipe_detail_rich_text(
-		_get_tool_craft_time(tool_id),
-		_get_tool_craft_xp(tool_id),
-		_get_tool_craft_cost(tool_id),
-		_get_tool_use_text(tool_id)
+	var view := GameViews.get_tool_card_view(
+		tool_id,
+		_build_data_context(),
+		tools,
+		inventory,
+		current_action,
+		_get_current_action_time_left(),
+		_has_queued_action("craft_tool", tool_id),
+		_get_tool_queue_block_reason(tool_id)
 	)
-
-	if is_crafting_now:
-		button.text = "Crafting..."
-	elif is_crafting_queued:
-		button.text = "Queued"
-	elif durability >= max_durability:
-		button.text = "%s Ready" % _get_tool_name(tool_id)
-	else:
-		button.text = "Queue %s" % _get_tool_name(tool_id)
-
-	button.disabled = is_crafting_now or is_crafting_queued or block_reason != ""
+	status_label.text = view["status_text"]
+	detail_label.text = view["detail_text"]
+	button.text = view["button_text"]
+	button.disabled = view["button_disabled"]
 
 
 func _refresh_craftable_card(craftable_id: String) -> void:
@@ -1364,60 +1286,21 @@ func _refresh_craftable_card(craftable_id: String) -> void:
 	var status_label: Label = card["status_label"]
 	var detail_label: RichTextLabel = card["detail_label"]
 	var button: Button = card["button"]
-	var owned_count := _get_crafted_item_count(craftable_id)
-	var station_level := _get_processing_station_level(craftable_id)
-	var is_crafting_now := not current_action.is_empty() and _get_action_type(current_action) == "craft_item" and _get_action_id(current_action) == craftable_id
-	var is_upgrading_now := not current_action.is_empty() and _get_action_type(current_action) == "upgrade_craftable" and _get_action_id(current_action) == craftable_id
-	var block_reason := _get_craftable_queue_block_reason(craftable_id)
-	var upgrade_block_reason := _get_craftable_upgrade_queue_block_reason(craftable_id)
-	var can_upgrade := owned_count > 0
-
-	if is_crafting_now:
-		status_label.text = "%s: Building (%s left)" % [
-			_get_craftable_name(craftable_id),
-			_format_seconds(_get_current_action_time_left()),
-		]
-	elif is_upgrading_now:
-		status_label.text = "%s: Upgrading to Lv %d (%s left)" % [
-			_get_craftable_name(craftable_id),
-			station_level + 1,
-			_format_seconds(_get_current_action_time_left()),
-		]
-	else:
-		if owned_count > 0:
-			status_label.text = "%s: Built | Station Lv %d | %.0f%% faster" % [
-				_get_craftable_name(craftable_id),
-				station_level,
-				(1.0 - _get_craftable_speed_multiplier(craftable_id)) * 100.0,
-			]
-		else:
-			status_label.text = "%s: Not built" % _get_craftable_name(craftable_id)
-
-	if owned_count > 0:
-		detail_label.text = _format_recipe_detail_rich_text(
-			_get_craftable_craft_time(craftable_id),
-			_get_craftable_craft_xp(craftable_id),
-			_get_craftable_upgrade_cost(craftable_id),
-			"Next upgrade: 15%% faster station recipes. %s" % _get_craftable_use_text(craftable_id)
-		)
-	else:
-		detail_label.text = _format_recipe_detail_rich_text(
-			_get_craftable_craft_time(craftable_id),
-			_get_craftable_craft_xp(craftable_id),
-			_get_craftable_craft_cost(craftable_id),
-			_get_craftable_use_text(craftable_id)
-		)
-
-	if is_crafting_now:
-		button.text = "Building..."
-	elif is_upgrading_now:
-		button.text = "Upgrading..."
-	elif can_upgrade:
-		button.text = "Upgrade %s" % _get_craftable_name(craftable_id)
-	else:
-		button.text = "Build %s" % _get_craftable_name(craftable_id)
-
-	button.disabled = is_crafting_now or is_upgrading_now or (upgrade_block_reason != "" if can_upgrade else block_reason != "")
+	var view := GameViews.get_craftable_card_view(
+		craftable_id,
+		_build_data_context(),
+		inventory,
+		crafted_items,
+		craftable_upgrade_levels,
+		current_action,
+		_get_current_action_time_left(),
+		_get_craftable_queue_block_reason(craftable_id),
+		_get_craftable_upgrade_queue_block_reason(craftable_id)
+	)
+	status_label.text = view["status_text"]
+	detail_label.text = view["detail_text"]
+	button.text = view["button_text"]
+	button.disabled = view["button_disabled"]
 
 
 func _refresh_recipe_card(recipe_id: String) -> void:
@@ -1427,43 +1310,25 @@ func _refresh_recipe_card(recipe_id: String) -> void:
 
 	var stats_label: RichTextLabel = card["stats_label"]
 	var button: Button = card["button"]
-	var station_id := _get_recipe_station_id(recipe_id)
-	var station_ready := _get_crafted_item_count(station_id) > 0
 	var is_processing_now := not current_action.is_empty() and _get_action_type(current_action) == "process_recipe" and _get_action_id(current_action) == recipe_id
-	var block_reason := _get_recipe_queue_block_reason(recipe_id)
-	var display_duration := _get_recipe_craft_time(recipe_id)
-
-	if is_processing_now:
-		display_duration = maxf(0.001, float(current_action["duration"]))
-
-	var summary_text := ""
-	if not station_ready:
-		summary_text = ""
-	else:
-		summary_text = "%.2fs | +%d XP | Cost: %s | Output: %s" % [
-			display_duration,
-			_get_recipe_craft_xp(recipe_id),
-			_format_cost_markup(_get_recipe_craft_cost(recipe_id)),
-			_format_cost(_get_recipe_outputs(recipe_id)),
-		]
-		var fuel_cost_units := _get_recipe_fuel_cost_units(recipe_id)
-		if fuel_cost_units > 0:
-			summary_text += " | Fuel: %d" % fuel_cost_units
-		if is_processing_now:
-			summary_text += " | %s left" % _format_seconds(_get_current_action_time_left())
-
-	stats_label.text = summary_text
-
-	if block_reason != "" and not is_processing_now:
-		button.text = block_reason if block_reason.length() <= 18 else "Blocked"
-	else:
-		button.text = "Queue +1" if is_processing_now else "Queue"
-
-	button.disabled = (block_reason != "" and not is_processing_now)
-	if not button.disabled:
-		button.tooltip_text = _get_queue_button_tooltip()
-	else:
-		button.tooltip_text = ""
+	var display_duration := maxf(0.001, float(current_action["duration"])) if is_processing_now else _get_recipe_craft_time(recipe_id)
+	var view := GameViews.get_recipe_card_view(
+		recipe_id,
+		_build_data_context(),
+		inventory,
+		crafted_items,
+		current_action,
+		_get_current_action_time_left(),
+		_get_recipe_queue_block_reason(recipe_id),
+		display_duration,
+		_get_recipe_craft_cost(recipe_id),
+		_get_recipe_outputs(recipe_id),
+		_get_queue_button_tooltip()
+	)
+	stats_label.text = view["summary_text"]
+	button.text = view["button_text"]
+	button.disabled = view["button_disabled"]
+	button.tooltip_text = view["button_tooltip"]
 
 
 func _refresh_upgrade_card(upgrade_id: String) -> void:
@@ -1472,13 +1337,20 @@ func _refresh_upgrade_card(upgrade_id: String) -> void:
 	var detail_label: Label = card["detail_label"]
 	var cost_label: RichTextLabel = card["cost_label"]
 	var button: Button = card["button"]
-	var current_level := int(upgrade_levels[upgrade_id])
 	var next_cost := _get_upgrade_cost(upgrade_id)
-
-	level_label.text = "Lv %d" % current_level
-	detail_label.text = _get_upgrade_detail(upgrade_id)
-	cost_label.text = _format_cost_rich_text(next_cost)
-	button.disabled = not _can_afford(next_cost)
+	var view := GameViews.get_upgrade_card_view(
+		upgrade_id,
+		_build_data_context(),
+		inventory,
+		upgrade_levels,
+		next_cost,
+		_get_upgrade_detail(upgrade_id),
+		_can_afford(next_cost)
+	)
+	level_label.text = view["level_text"]
+	detail_label.text = view["detail_text"]
+	cost_label.text = view["cost_text"]
+	button.disabled = view["button_disabled"]
 
 
 func _can_queue_pickable(resource_id: String) -> bool:
@@ -1544,35 +1416,17 @@ func _get_station_fuel_queue_block_reason(craftable_id: String, item_id: String)
 
 
 func _refresh_runtime_status() -> void:
-	var active_count := 0
-	if not current_action.is_empty():
-		active_count = 1
-
-	if current_action.is_empty():
-		current_action_label.text = "Current action: Paused" if is_queue_paused else "Current action: Idle"
-	else:
-		var duration := maxf(0.001, float(current_action["duration"]))
-		var elapsed := minf(float(current_action["elapsed"]), duration)
-		var percent := int(round((elapsed / duration) * 100.0))
-		var time_left := maxf(0.0, duration - elapsed)
-		var action_prefix := "Current action"
-		if is_queue_paused:
-			action_prefix = "Current action (Paused)"
-		current_action_label.text = "%s: %s (%d%%, %s left)" % [
-			action_prefix,
-			_get_action_progress_label(current_action),
-			clampi(percent, 0, 100),
-			_format_seconds(time_left),
-		]
-
-	var queue_state_text := "Paused" if is_queue_paused else "Running"
-	queue_summary_label.text = "Pipeline: %s | %d active, %d queued / %d queued slots" % [
-		queue_state_text,
-		active_count,
+	var view := GameViews.get_runtime_status_view(
+		current_action,
+		is_queue_paused,
 		action_queue.size(),
 		_get_queue_capacity(),
-	]
-	queue_time_left_label.text = "Total time left: %s" % _format_seconds(_estimate_queue_time_left())
+		_estimate_queue_time_left(),
+		_build_data_context()
+	)
+	current_action_label.text = view["current_action_text"]
+	queue_summary_label.text = view["queue_summary_text"]
+	queue_time_left_label.text = view["queue_time_left_text"]
 	_update_gather_bars()
 
 
