@@ -1,5 +1,6 @@
 extends Control
 
+const GameActions = preload("res://scripts/game_actions.gd")
 const GameData = preload("res://scripts/game_data.gd")
 const GameRules = preload("res://scripts/game_rules.gd")
 
@@ -2134,111 +2135,55 @@ func _apply_action_completion_to_state(state: Dictionary, action: Dictionary) ->
 
 
 func _get_action_queue_label(action: Dictionary) -> String:
-	match _get_action_type(action):
-		"gather":
-			return _get_resource_name(_get_action_id(action))
-		"craft_tool":
-			return "Craft %s" % _get_tool_name(_get_action_id(action))
-		"craft_item":
-			return "Build %s" % _get_craftable_name(_get_action_id(action))
-		"upgrade_craftable":
-			return "Upgrade %s" % _get_craftable_name(_get_action_id(action))
-		"process_recipe":
-			return "%s: %s" % [_get_craftable_name(_get_recipe_station_id(_get_action_id(action))), _get_recipe_name(_get_action_id(action))]
-		"refuel_station":
-			return "Burn %s in %s" % [_get_resource_name(_get_action_fuel_item_id(action)), _get_craftable_name(_get_action_station_id(action))]
-		_:
-			return "Unknown"
+	return GameActions.get_action_queue_label(action, _build_data_context())
 
 
 func _get_action_progress_label(action: Dictionary) -> String:
-	match _get_action_type(action):
-		"gather":
-			return "Gathering %s" % _get_resource_name(_get_action_id(action))
-		"craft_tool":
-			return "Crafting %s" % _get_tool_name(_get_action_id(action))
-		"craft_item":
-			return "Building %s" % _get_craftable_name(_get_action_id(action))
-		"upgrade_craftable":
-			return "Upgrading %s" % _get_craftable_name(_get_action_id(action))
-		"process_recipe":
-			return "Processing %s" % _get_recipe_name(_get_action_id(action))
-		"refuel_station":
-			return "Loading %s" % _get_resource_name(_get_action_fuel_item_id(action))
-		_:
-			return "Working"
+	return GameActions.get_action_progress_label(action, _build_data_context())
 
 
 func _make_gather_action(resource_id: String) -> Dictionary:
-	return {
-		"type": "gather",
-		"id": resource_id,
-	}
+	return GameActions.make_gather_action(resource_id)
 
 
 func _make_craft_tool_action(tool_id: String) -> Dictionary:
-	return {
-		"type": "craft_tool",
-		"id": tool_id,
-	}
+	return GameActions.make_craft_tool_action(tool_id)
 
 
 func _make_craft_item_action(craftable_id: String) -> Dictionary:
-	return {
-		"type": "craft_item",
-		"id": craftable_id,
-	}
+	return GameActions.make_craft_item_action(craftable_id)
 
 
 func _make_upgrade_craftable_action(craftable_id: String) -> Dictionary:
-	return {
-		"type": "upgrade_craftable",
-		"id": craftable_id,
-	}
+	return GameActions.make_upgrade_craftable_action(craftable_id)
 
 
 func _make_process_recipe_action(recipe_id: String) -> Dictionary:
-	return {
-		"type": "process_recipe",
-		"id": recipe_id,
-	}
+	return GameActions.make_process_recipe_action(recipe_id)
 
 
 func _make_refuel_station_action(craftable_id: String, item_id: String) -> Dictionary:
-	return {
-		"type": "refuel_station",
-		"id": craftable_id,
-		"station_id": craftable_id,
-		"fuel_item_id": item_id,
-	}
+	return GameActions.make_refuel_station_action(craftable_id, item_id)
 
 
 func _action_from_current_action() -> Dictionary:
-	if current_action.is_empty():
-		return {}
-
-	return {
-		"type": _get_action_type(current_action),
-		"id": _get_action_id(current_action),
-		"station_id": _get_action_station_id(current_action),
-		"fuel_item_id": _get_action_fuel_item_id(current_action),
-	}
+	return GameActions.copy_action(current_action)
 
 
 func _get_action_type(action: Dictionary) -> String:
-	return String(action.get("type", ""))
+	return GameActions.get_action_type(action)
 
 
 func _get_action_id(action: Dictionary) -> String:
-	return String(action.get("id", ""))
+	return GameActions.get_action_id(action)
 
 
 func _get_action_station_id(action: Dictionary) -> String:
-	return String(action.get("station_id", _get_action_id(action)))
+	return GameActions.get_action_station_id(action)
 
 
 func _get_action_fuel_item_id(action: Dictionary) -> String:
-	return String(action.get("fuel_item_id", ""))
+	return GameActions.get_action_fuel_item_id(action)
 
 
 func _is_current_gather_action(resource_id: String) -> bool:

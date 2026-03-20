@@ -1,5 +1,6 @@
 extends RefCounted
 
+const GameActions = preload("res://scripts/game_actions.gd")
 const GameData = preload("res://scripts/game_data.gd")
 
 
@@ -332,19 +333,19 @@ static func can_afford_inventory(stock: Dictionary, cost: Dictionary) -> bool:
 
 
 static func _get_action_type(action: Dictionary) -> String:
-	return String(action.get("type", ""))
+	return GameActions.get_action_type(action)
 
 
 static func _get_action_id(action: Dictionary) -> String:
-	return String(action.get("id", ""))
+	return GameActions.get_action_id(action)
 
 
 static func _get_action_station_id(action: Dictionary) -> String:
-	return String(action.get("station_id", _get_action_id(action)))
+	return GameActions.get_action_station_id(action)
 
 
 static func _get_action_fuel_item_id(action: Dictionary) -> String:
-	return String(action.get("fuel_item_id", ""))
+	return GameActions.get_action_fuel_item_id(action)
 
 
 static func _get_resource_skill_id(resource_id: String, rules: Dictionary) -> String:
