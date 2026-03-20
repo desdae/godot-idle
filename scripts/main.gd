@@ -10,6 +10,7 @@ const GameRules = preload("res://scripts/game_rules.gd")
 const GameRuntime = preload("res://scripts/game_runtime.gd")
 const GameState = preload("res://scripts/game_state.gd")
 const GameUiBuilder = preload("res://scripts/game_ui_builder.gd")
+const GameUiRefresh = preload("res://scripts/game_ui_refresh.gd")
 const GameViews = preload("res://scripts/game_views.gd")
 
 var game_title := "Idle Gatherer"
@@ -737,17 +738,8 @@ func _refresh_ui() -> void:
 		_refresh_skill_row(skill_id)
 	_refresh_skill_context_label()
 
-	queue_list.clear()
-	if not current_action.is_empty():
-		queue_list.add_item("Now: %s" % _get_action_queue_label(current_action))
-
-	for index in range(action_queue.size()):
-		var queued_action: Dictionary = action_queue[index]
-		queue_list.add_item("%d. %s" % [index + 1, _get_action_queue_label(queued_action)])
-
-	clear_queue_button.disabled = action_queue.is_empty()
-	pause_queue_button.text = "Resume queue" if is_queue_paused else "Pause queue"
-	pause_queue_button.disabled = current_action.is_empty() and action_queue.is_empty()
+	GameUiRefresh.refresh_queue_list(queue_list, current_action, action_queue, _build_data_context())
+	GameUiRefresh.refresh_queue_controls(clear_queue_button, pause_queue_button, is_queue_paused, current_action, action_queue)
 	_refresh_tool_panel()
 	_refresh_craftable_panel()
 	_refresh_recipe_panel()
@@ -763,9 +755,6 @@ func _refresh_ui() -> void:
 
 
 func _refresh_resource_card(resource_id: String) -> void:
-	var card: Dictionary = resource_cards[resource_id]
-	var stats_label: Label = card["stats_label"]
-	var queue_button: Button = card["queue_button"]
 	var view := GameViews.get_resource_card_view(
 		resource_id,
 		_build_data_context(),
@@ -778,10 +767,7 @@ func _refresh_resource_card(resource_id: String) -> void:
 		_get_gather_action_duration(resource_id),
 		_get_queue_button_tooltip()
 	)
-	stats_label.text = view["stats_text"]
-	queue_button.text = view["button_text"]
-	queue_button.disabled = view["button_disabled"]
-	queue_button.tooltip_text = view["button_tooltip"]
+	GameUiRefresh.apply_resource_card(resource_cards[resource_id], view)
 
 
 func _refresh_tool_panel() -> void:
@@ -800,11 +786,7 @@ func _refresh_recipe_panel() -> void:
 			continue
 
 		var station_card: Dictionary = processing_station_cards[craftable_id]
-		var station_status: Label = station_card["status_label"]
-		var toggle_button: Button = station_card["toggle_button"]
 		var fuel_buttons: Dictionary = station_card["fuel_buttons"]
-		var fuel_state_label: Label = station_card["fuel_state_label"]
-		var recipes_box: VBoxContainer = station_card["recipes_box"]
 		var is_expanded := bool(processing_station_expanded.get(craftable_id, true))
 		var station_view := GameViews.get_station_status_view(
 			craftable_id,
@@ -814,15 +796,12 @@ func _refresh_recipe_panel() -> void:
 			stored_fuel_units,
 			is_expanded
 		)
-		toggle_button.text = station_view["toggle_text"]
-		recipes_box.visible = station_view["recipes_visible"]
-		station_status.text = station_view["status_text"]
 
 		var all_fuel_buttons_full := fuel_buttons.size() > 0 and bool(station_view["show_fuel_summary"])
+		var fuel_views := {}
 		for fuel_item_id in fuel_buttons.keys():
-			var fuel_button: Button = fuel_buttons[fuel_item_id]
 			var fuel_block_reason := _get_station_fuel_queue_block_reason(craftable_id, fuel_item_id)
-			var fuel_view := GameViews.get_fuel_button_view(
+			fuel_views[fuel_item_id] = GameViews.get_fuel_button_view(
 				fuel_item_id,
 				_build_data_context(),
 				current_action,
@@ -830,19 +809,9 @@ func _refresh_recipe_panel() -> void:
 				fuel_block_reason,
 				_get_queue_button_tooltip()
 			)
-			all_fuel_buttons_full = all_fuel_buttons_full and bool(fuel_view["is_full"])
-			fuel_button.text = fuel_view["button_text"]
-			fuel_button.disabled = fuel_view["button_disabled"]
-			fuel_button.tooltip_text = fuel_view["button_tooltip"]
+			all_fuel_buttons_full = all_fuel_buttons_full and bool(fuel_views[fuel_item_id]["is_full"])
 
-		if fuel_state_label != null:
-			var show_fuel_full_label := all_fuel_buttons_full
-			fuel_state_label.visible = show_fuel_full_label
-			if show_fuel_full_label:
-				fuel_state_label.text = "Fuel Full"
-			for fuel_item_id in fuel_buttons.keys():
-				var fuel_button: Button = fuel_buttons[fuel_item_id]
-				fuel_button.visible = not show_fuel_full_label
+		GameUiRefresh.apply_station_card(station_card, station_view, fuel_views, all_fuel_buttons_full)
 
 	for recipe_id in recipe_order:
 		_refresh_recipe_card(recipe_id)
@@ -854,15 +823,14 @@ func _refresh_item_summary() -> void:
 			continue
 
 		var item_label: Label = item_labels[item_id]
-		item_label.text = "%s: %d" % [_get_resource_name(item_id), int(inventory.get(item_id, 0))]
-		item_label.tooltip_text = _get_item_description(item_id)
+		GameUiRefresh.apply_item_summary(
+			item_label,
+			"%s: %d" % [_get_resource_name(item_id), int(inventory.get(item_id, 0))],
+			_get_item_description(item_id)
+		)
 
 
 func _refresh_tool_card(tool_id: String) -> void:
-	var card: Dictionary = tool_cards[tool_id]
-	var status_label: Label = card["status_label"]
-	var detail_label: RichTextLabel = card["detail_label"]
-	var button: Button = card["button"]
 	var view := GameViews.get_tool_card_view(
 		tool_id,
 		_build_data_context(),
@@ -873,17 +841,10 @@ func _refresh_tool_card(tool_id: String) -> void:
 		GameState.has_queued_action(action_queue, "craft_tool", tool_id),
 		_get_tool_queue_block_reason(tool_id)
 	)
-	status_label.text = view["status_text"]
-	detail_label.text = view["detail_text"]
-	button.text = view["button_text"]
-	button.disabled = view["button_disabled"]
+	GameUiRefresh.apply_tool_card(tool_cards[tool_id], view)
 
 
 func _refresh_craftable_card(craftable_id: String) -> void:
-	var card: Dictionary = craftable_cards[craftable_id]
-	var status_label: Label = card["status_label"]
-	var detail_label: RichTextLabel = card["detail_label"]
-	var button: Button = card["button"]
 	var view := GameViews.get_craftable_card_view(
 		craftable_id,
 		_build_data_context(),
@@ -895,10 +856,7 @@ func _refresh_craftable_card(craftable_id: String) -> void:
 		_get_craftable_queue_block_reason(craftable_id),
 		_get_craftable_upgrade_queue_block_reason(craftable_id)
 	)
-	status_label.text = view["status_text"]
-	detail_label.text = view["detail_text"]
-	button.text = view["button_text"]
-	button.disabled = view["button_disabled"]
+	GameUiRefresh.apply_craftable_card(craftable_cards[craftable_id], view)
 
 
 func _refresh_recipe_card(recipe_id: String) -> void:
@@ -906,8 +864,6 @@ func _refresh_recipe_card(recipe_id: String) -> void:
 	if card.is_empty():
 		return
 
-	var stats_label: RichTextLabel = card["stats_label"]
-	var button: Button = card["button"]
 	var is_processing_now := not current_action.is_empty() and _get_action_type(current_action) == "process_recipe" and _get_action_id(current_action) == recipe_id
 	var display_duration := maxf(0.001, float(current_action["duration"])) if is_processing_now else _get_recipe_craft_time(recipe_id)
 	var view := GameViews.get_recipe_card_view(
@@ -923,18 +879,10 @@ func _refresh_recipe_card(recipe_id: String) -> void:
 		_get_recipe_outputs(recipe_id),
 		_get_queue_button_tooltip()
 	)
-	stats_label.text = view["summary_text"]
-	button.text = view["button_text"]
-	button.disabled = view["button_disabled"]
-	button.tooltip_text = view["button_tooltip"]
+	GameUiRefresh.apply_recipe_card(card, view)
 
 
 func _refresh_upgrade_card(upgrade_id: String) -> void:
-	var card: Dictionary = upgrade_cards[upgrade_id]
-	var level_label: Label = card["level_label"]
-	var detail_label: Label = card["detail_label"]
-	var cost_label: RichTextLabel = card["cost_label"]
-	var button: Button = card["button"]
 	var next_cost := _get_upgrade_cost(upgrade_id)
 	var view := GameViews.get_upgrade_card_view(
 		upgrade_id,
@@ -945,10 +893,7 @@ func _refresh_upgrade_card(upgrade_id: String) -> void:
 		_get_upgrade_detail(upgrade_id),
 		_can_afford(next_cost)
 	)
-	level_label.text = view["level_text"]
-	detail_label.text = view["detail_text"]
-	cost_label.text = view["cost_text"]
-	button.disabled = view["button_disabled"]
+	GameUiRefresh.apply_upgrade_card(upgrade_cards[upgrade_id], view)
 
 
 func _can_queue_pickable(resource_id: String) -> bool:
@@ -1022,9 +967,7 @@ func _refresh_runtime_status() -> void:
 		_estimate_queue_time_left(),
 		_build_data_context()
 	)
-	current_action_label.text = view["current_action_text"]
-	queue_summary_label.text = view["queue_summary_text"]
-	queue_time_left_label.text = view["queue_time_left_text"]
+	GameUiRefresh.apply_runtime_status(current_action_label, queue_summary_label, queue_time_left_label, view)
 	_update_gather_bars()
 
 
@@ -1147,19 +1090,8 @@ func _estimate_queue_time_left() -> float:
 
 
 func _refresh_skill_row(skill_id: String) -> void:
-	var row: Dictionary = skill_rows[skill_id]
-	var panel: PanelContainer = row["panel"]
-	var skill_label: Label = row["skill_label"]
-	var exp_label: Label = row["exp_label"]
-	var exp_bar: ProgressBar = row["exp_bar"]
 	var view := GameViews.get_skill_row_view(skill_id, _build_data_context(), skill_states, _get_active_skill_id())
-
-	skill_label.text = view["skill_label_text"]
-	exp_label.text = view["exp_label_text"]
-	exp_bar.value = view["exp_progress"]
-	panel.add_theme_stylebox_override("panel", view["panel_style"])
-	skill_label.add_theme_color_override("font_color", view["skill_label_color"])
-	exp_label.add_theme_color_override("font_color", view["exp_label_color"])
+	GameUiRefresh.apply_skill_row(skill_rows[skill_id], view)
 
 
 func _refresh_skill_context_label() -> void:
