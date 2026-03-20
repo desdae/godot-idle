@@ -2,6 +2,7 @@ extends Control
 
 const GameActions = preload("res://scripts/game_actions.gd")
 const GameData = preload("res://scripts/game_data.gd")
+const GameDomain = preload("res://scripts/game_domain.gd")
 const GameEconomy = preload("res://scripts/game_economy.gd")
 const GameInteractions = preload("res://scripts/game_interactions.gd")
 const GamePresentation = preload("res://scripts/game_presentation.gd")
@@ -710,7 +711,7 @@ func _queue_action_count(action: Dictionary, amount: int) -> void:
 		action_queue,
 		action,
 		amount,
-		_get_queue_capacity(),
+		GameDomain.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade),
 		_action_from_current_action(),
 		_create_simulation_state(),
 		_build_rules_context()
@@ -725,11 +726,11 @@ func _queue_action_count(action: Dictionary, amount: int) -> void:
 
 
 func _buy_upgrade(upgrade_id: String) -> void:
-	var cost := _get_upgrade_cost(upgrade_id)
-	if not _can_afford(cost):
+	var cost := GameDomain.get_upgrade_cost(upgrade_id, upgrade_levels, upgrades, _build_data_context())
+	if not GameDomain.can_afford(cost, inventory):
 		return
 
-	_spend_resources(cost)
+	GameDomain.spend_resources(inventory, cost)
 	upgrade_levels[upgrade_id] += 1
 	_refresh_ui()
 
@@ -956,7 +957,11 @@ func _refresh_recipe_card(recipe_id: String) -> void:
 		return
 
 	var is_processing_now := not current_action.is_empty() and _get_action_type(current_action) == "process_recipe" and _get_action_id(current_action) == recipe_id
-	var display_duration := maxf(0.001, float(current_action["duration"])) if is_processing_now else _get_recipe_craft_time(recipe_id)
+	var display_duration := maxf(0.001, float(current_action["duration"])) if is_processing_now else GameDomain.get_recipe_craft_time(
+		recipe_id,
+		_create_simulation_state(),
+		_build_rules_context()
+	)
 	var view := GameViews.get_recipe_card_view(
 		recipe_id,
 		_build_data_context(),
@@ -973,15 +978,15 @@ func _refresh_recipe_card(recipe_id: String) -> void:
 			_build_rules_context()
 		),
 		display_duration,
-		_get_recipe_craft_cost(recipe_id),
-		_get_recipe_outputs(recipe_id),
+		GameDomain.get_recipe_craft_cost(recipe_id, _build_data_context()),
+		GameDomain.get_recipe_outputs(recipe_id, _build_rules_context()),
 		_get_queue_button_tooltip()
 	)
 	GameUiRefresh.apply_recipe_card(card, view)
 
 
 func _refresh_upgrade_card(upgrade_id: String) -> void:
-	var next_cost := _get_upgrade_cost(upgrade_id)
+	var next_cost := GameDomain.get_upgrade_cost(upgrade_id, upgrade_levels, upgrades, _build_data_context())
 	var view := GameViews.get_upgrade_card_view(
 		upgrade_id,
 		_build_data_context(),
@@ -989,7 +994,7 @@ func _refresh_upgrade_card(upgrade_id: String) -> void:
 		upgrade_levels,
 		next_cost,
 		_get_upgrade_detail(upgrade_id),
-		_can_afford(next_cost)
+		GameDomain.can_afford(next_cost, inventory)
 	)
 	GameUiRefresh.apply_upgrade_card(upgrade_cards[upgrade_id], view)
 
@@ -1144,10 +1149,6 @@ func _get_capacity(resource_id: String) -> int:
 	return GameEconomy.get_capacity(resource_id, _build_data_context(), upgrade_levels, bag_capacity_per_upgrade)
 
 
-func _get_queue_capacity() -> int:
-	return GameEconomy.get_queue_capacity(upgrade_levels, base_queue_size, queue_size_per_upgrade)
-
-
 func _get_resource_xp(resource_id: String) -> int:
 	return GameData.get_resource_xp(resource_id, _build_data_context())
 
@@ -1194,10 +1195,6 @@ func _get_required_tool_id(resource_id: String) -> String:
 
 func _get_tool_durability_cost(resource_id: String) -> int:
 	return GameData.get_tool_durability_cost(resource_id, _build_data_context())
-
-
-func _resource_requires_tool(resource_id: String) -> bool:
-	return _get_required_tool_id(resource_id) != ""
 
 
 func _get_skill_name(skill_id: String) -> String:
@@ -1268,19 +1265,6 @@ func _get_craftable_max_count(craftable_id: String) -> int:
 	return GameData.get_craftable_max_count(craftable_id, _build_data_context())
 
 
-func _get_craftable_upgrade_cost(craftable_id: String, from_level: int = -1) -> Dictionary:
-	var effective_level := from_level
-	if effective_level < 0:
-		effective_level = GameState.get_craftable_upgrade_level(craftable_upgrade_levels, craftable_id)
-
-	return GameEconomy.get_craftable_upgrade_cost(
-		craftable_id,
-		effective_level,
-		_build_data_context(),
-		_get_inventory_item_order()
-	)
-
-
 func _get_craftable_upgrade_cost_multiplier(craftable_id: String) -> float:
 	return GameData.get_craftable_upgrade_cost_multiplier(craftable_id, _build_data_context())
 
@@ -1293,36 +1277,12 @@ func _get_station_fuel_capacity(craftable_id: String) -> int:
 	return GameData.get_station_fuel_capacity(craftable_id, _build_data_context())
 
 
-func _get_craftable_speed_multiplier(craftable_id: String) -> float:
-	return GameEconomy.get_craftable_speed_multiplier(
-		craftable_id,
-		GameState.get_craftable_upgrade_level(craftable_upgrade_levels, craftable_id),
-		_build_data_context()
-	)
-
-
 func _get_recipe_name(recipe_id: String) -> String:
 	return GameData.get_recipe_name(recipe_id, _build_data_context())
 
 
 func _get_recipe_station_id(recipe_id: String) -> String:
 	return GameData.get_recipe_station_id(recipe_id, _build_data_context())
-
-
-func _get_recipe_craft_cost(recipe_id: String) -> Dictionary:
-	return _build_cost(GameData.get_recipe_craft_cost(recipe_id, _build_data_context()))
-
-
-func _get_recipe_outputs(recipe_id: String) -> Dictionary:
-	return _build_cost(GameRules.get_recipe_outputs(recipe_id, _build_rules_context()))
-
-
-func _get_recipe_craft_time(recipe_id: String) -> float:
-	return GameQueries.get_action_duration(
-		GameActions.make_process_recipe_action(recipe_id),
-		_create_simulation_state(),
-		_build_rules_context()
-	)
 
 
 func _get_recipe_craft_xp(recipe_id: String) -> int:
@@ -1438,26 +1398,6 @@ func _get_upgrade_detail(upgrade_id: String) -> String:
 		queue_size_per_upgrade,
 		base_queue_size
 	)
-
-
-func _get_upgrade_cost(upgrade_id: String) -> Dictionary:
-	return GameEconomy.get_upgrade_cost(upgrade_id, upgrade_levels, upgrades, _get_inventory_item_order())
-
-
-func _build_cost(raw_cost: Dictionary) -> Dictionary:
-	return GameEconomy.build_cost(raw_cost, _get_inventory_item_order())
-
-
-func _can_afford(cost: Dictionary) -> bool:
-	return _can_afford_inventory(inventory, cost)
-
-
-func _can_afford_inventory(stock: Dictionary, cost: Dictionary) -> bool:
-	return GameRules.can_afford_inventory(stock, cost)
-
-
-func _spend_resources(cost: Dictionary) -> void:
-	GameEconomy.spend_resources(inventory, cost)
 
 
 func _on_cost_meta_clicked(meta: Variant) -> void:
