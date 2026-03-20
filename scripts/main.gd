@@ -1,5 +1,7 @@
 extends Control
 
+const GameRules = preload("res://scripts/game_rules.gd")
+
 var game_title := "Idle Gatherer"
 var game_subtitle := "Gather, craft a Stone Axe for Logs, and spend resources on stronger tools, bigger bags, and longer queues."
 var exp_growth := 1.25
@@ -233,6 +235,24 @@ func _initialize_state() -> void:
 	current_action.clear()
 	current_action_completion_pending = false
 	is_queue_paused = false
+
+
+func _build_rules_context() -> Dictionary:
+	return {
+		"exp_growth": exp_growth,
+		"level_speed_multiplier": level_speed_multiplier,
+		"speed_upgrade_multiplier": speed_upgrade_multiplier,
+		"min_gather_time": min_gather_time,
+		"bag_capacity_per_upgrade": bag_capacity_per_upgrade,
+		"upgrade_levels": upgrade_levels,
+		"inventory_item_order": _get_inventory_item_order(),
+		"skill_definitions": skill_definitions,
+		"gatherables": gatherables,
+		"items": items,
+		"tool_definitions": tool_definitions,
+		"craftables": craftables,
+		"recipes": recipes,
+	}
 
 
 func _process(delta: float) -> void:
@@ -1698,49 +1718,15 @@ func _get_action_duration(action: Dictionary) -> float:
 
 
 func _get_action_duration_for_state(action: Dictionary, state: Dictionary) -> float:
-	var action_type := _get_action_type(action)
-	var action_id := _get_action_id(action)
-	match action_type:
-		"gather":
-			return _get_gather_action_duration_for_state(
-				action_id,
-				int(state["skills"][_get_resource_skill_id(action_id)]["level"]),
-				int(upgrade_levels["tooling"])
-			)
-		"craft_tool":
-			return _get_tool_craft_time(action_id)
-		"craft_item":
-			return _get_craftable_craft_time(action_id)
-		"upgrade_craftable":
-			return _get_craftable_craft_time(action_id)
-		"process_recipe":
-			return _get_recipe_craft_time_for_state(action_id, state)
-		"refuel_station":
-			return 0.35
-		_:
-			return 0.0
+	return GameRules.get_action_duration_for_state(action, state, _build_rules_context())
 
 
 func _get_gather_action_duration_for_state(resource_id: String, level_value: int, tooling_level: int) -> float:
-	var gatherable: Dictionary = gatherables[resource_id]
-	var level_multiplier := _get_skill_level_speed_multiplier(level_value)
-	var upgrade_multiplier := pow(speed_upgrade_multiplier, tooling_level)
-	var duration := float(gatherable["base_time"]) * level_multiplier * upgrade_multiplier
-	return maxf(min_gather_time, duration)
+	return GameRules.get_gather_action_duration_for_state(resource_id, level_value, tooling_level, _build_rules_context())
 
 
 func _get_recipe_craft_time_for_state(recipe_id: String, state: Dictionary) -> float:
-	var recipe: Dictionary = recipes[recipe_id]
-	var station_id := _get_recipe_station_id(recipe_id)
-	var skill_id := _get_recipe_skill_id(recipe_id)
-	var skill_state: Dictionary = state["skills"].get(skill_id, {"level": 1})
-	var skill_level := int(skill_state.get("level", 1))
-	var upgrade_level := int(state["craftable_upgrade_levels"].get(station_id, 0))
-	var base_duration := float(recipe.get("craft_time", 0.0))
-	if bool(recipe.get("use_source_fuel_value", false)):
-		base_duration *= float(_get_recipe_source_fuel_units(recipe_id))
-	var duration := base_duration * _get_skill_level_speed_multiplier(skill_level) * pow(_get_craftable_station_speed_multiplier(station_id), upgrade_level)
-	return maxf(min_gather_time, duration)
+	return GameRules.get_recipe_craft_time_for_state(recipe_id, state, _build_rules_context())
 
 
 func _estimate_queue_time_left() -> float:
@@ -1760,20 +1746,7 @@ func _estimate_queue_time_left() -> float:
 
 
 func _simulate_exp_gain(level_value: int, exp_value: int, exp_to_next_value: int, amount: int) -> Dictionary:
-	var next_level := level_value
-	var next_exp := exp_value + amount
-	var next_exp_to_next := exp_to_next_value
-
-	while next_exp >= next_exp_to_next:
-		next_exp -= next_exp_to_next
-		next_level += 1
-		next_exp_to_next = maxi(int(ceil(float(next_exp_to_next) * exp_growth)), next_exp_to_next + 1)
-
-	return {
-		"level": next_level,
-		"exp": next_exp,
-		"exp_to_next": next_exp_to_next,
-	}
+	return GameRules.simulate_exp_gain(level_value, exp_value, exp_to_next_value, amount, exp_growth)
 
 
 func _refresh_skill_row(skill_id: String) -> void:
@@ -1912,11 +1885,7 @@ func _get_item_description(item_id: String) -> String:
 
 
 func _get_item_fuel_units(item_id: String) -> int:
-	if not items.has(item_id):
-		return 0
-
-	var item: Dictionary = items[item_id]
-	return int(item.get("fuel_units", 0))
+	return GameRules.get_item_fuel_units(item_id, _build_rules_context())
 
 
 func _get_resource_skill_id(resource_id: String) -> String:
@@ -2009,23 +1978,15 @@ func _get_skill_exp_to_next(skill_id: String) -> int:
 
 
 func _get_skill_level_speed_multiplier(level_value: int) -> float:
-	return pow(level_speed_multiplier, maxi(level_value - 1, 0))
+	return GameRules.get_skill_level_speed_multiplier(level_value, _build_rules_context())
 
 
 func _is_resource_unlocked_in_state(resource_id: String, state: Dictionary) -> bool:
-	var skill_id := _get_resource_skill_id(resource_id)
-	var skill_state: Dictionary = {"level": 1}
-	if state["skills"].has(skill_id):
-		skill_state = state["skills"][skill_id]
-	return int(skill_state.get("level", 1)) >= _get_unlock_level(resource_id)
+	return GameRules.is_resource_unlocked_in_state(resource_id, state, _build_rules_context())
 
 
 func _get_resource_unlock_requirement_text(resource_id: String) -> String:
-	return "%s unlocks at %s Lv %d." % [
-		_get_resource_name(_get_gather_output_item_id(resource_id)),
-		_get_skill_name(_get_resource_skill_id(resource_id)),
-		_get_unlock_level(resource_id),
-	]
+	return GameRules.get_resource_unlock_requirement_text(resource_id, _build_rules_context())
 
 
 func _skill_has_gatherables(skill_id: String) -> bool:
@@ -2178,20 +2139,7 @@ func _get_recipe_craft_cost(recipe_id: String) -> Dictionary:
 
 
 func _get_recipe_outputs(recipe_id: String) -> Dictionary:
-	var recipe: Dictionary = recipes[recipe_id]
-	var outputs := _build_cost(Dictionary(recipe.get("outputs", {})))
-	if not bool(recipe.get("use_source_fuel_value", false)):
-		return outputs
-
-	var multiplier := _get_recipe_source_fuel_units(recipe_id)
-	if multiplier <= 1:
-		return outputs
-
-	var scaled_outputs := {}
-	for item_id in outputs.keys():
-		scaled_outputs[item_id] = int(outputs[item_id]) * multiplier
-
-	return _build_cost(scaled_outputs)
+	return _build_cost(GameRules.get_recipe_outputs(recipe_id, _build_rules_context()))
 
 
 func _get_recipe_craft_time(recipe_id: String) -> float:
@@ -2214,26 +2162,16 @@ func _get_recipe_fuel_cost_units(recipe_id: String) -> int:
 
 
 func _get_recipe_source_fuel_units(recipe_id: String) -> int:
-	var recipe_cost := _get_recipe_craft_cost(recipe_id)
-	if recipe_cost.size() != 1:
-		return 1
-
-	for item_id in recipe_cost.keys():
-		return maxi(1, _get_item_fuel_units(String(item_id)))
-
-	return 1
+	return GameRules.get_recipe_source_fuel_units(recipe_id, _build_rules_context())
 
 
 func _build_pipeline_end_state() -> Dictionary:
-	var state := _create_simulation_state()
-
-	if not current_action.is_empty():
-		_apply_action_completion_to_state(state, _action_from_current_action())
-
-	for queued_action in action_queue:
-		_simulate_action_in_state(state, queued_action)
-
-	return state
+	return GameRules.build_pipeline_end_state(
+		_create_simulation_state(),
+		_action_from_current_action(),
+		action_queue,
+		_build_rules_context()
+	)
 
 
 func _create_simulation_state() -> Dictionary:
@@ -2248,183 +2186,19 @@ func _create_simulation_state() -> Dictionary:
 
 
 func _simulate_action_in_state(state: Dictionary, action: Dictionary) -> Dictionary:
-	if _get_action_block_reason_in_state(action, state) != "":
-		return {
-			"ran": false,
-			"duration": 0.0,
-		}
-
-	var duration := _get_action_duration_for_state(action, state)
-	_apply_action_start_to_state(state, action)
-	_apply_action_completion_to_state(state, action)
-	return {
-		"ran": true,
-		"duration": duration,
-	}
+	return GameRules.simulate_action_in_state(state, action, _build_rules_context())
 
 
 func _get_action_block_reason_in_state(action: Dictionary, state: Dictionary) -> String:
-	var action_type := _get_action_type(action)
-	var action_id := _get_action_id(action)
-	match action_type:
-		"gather":
-			if not _is_resource_unlocked_in_state(action_id, state):
-				return _get_resource_unlock_requirement_text(action_id)
-
-			var output_item_id := _get_gather_output_item_id(action_id)
-			if int(state["inventory"].get(output_item_id, 0)) >= _get_capacity(action_id):
-				return "Full at end of queue"
-
-			var required_tool_id := _get_required_tool_id(action_id)
-			if required_tool_id != "":
-				var available_durability := int(state["tools"][required_tool_id]["durability"])
-				if available_durability < _get_tool_durability_cost(action_id):
-					return "Need %s" % _get_tool_name(required_tool_id)
-
-			return ""
-		"craft_tool":
-			if int(state["tools"][action_id]["durability"]) >= _get_tool_max_durability(action_id):
-				return "%s ready" % _get_tool_name(action_id)
-			if not _can_afford_inventory(state["inventory"], _get_tool_craft_cost(action_id)):
-				return "Need %s" % _format_cost(_get_tool_craft_cost(action_id))
-			return ""
-		"craft_item":
-			if int(state["crafted_items"][action_id]) >= _get_craftable_max_count(action_id):
-				return "%s built" % _get_craftable_name(action_id)
-			if not _can_afford_inventory(state["inventory"], _get_craftable_craft_cost(action_id)):
-				return "Need %s" % _format_cost(_get_craftable_craft_cost(action_id))
-			return ""
-		"upgrade_craftable":
-			if int(state["crafted_items"][action_id]) <= 0:
-				return "Build %s first" % _get_craftable_name(action_id)
-			if not _can_afford_inventory(state["inventory"], _get_craftable_upgrade_cost(action_id, int(state["craftable_upgrade_levels"][action_id]))):
-				return "Need %s" % _format_cost(_get_craftable_upgrade_cost(action_id, int(state["craftable_upgrade_levels"][action_id])))
-			return ""
-		"process_recipe":
-			var station_id := _get_recipe_station_id(action_id)
-			if int(state["crafted_items"].get(station_id, 0)) <= 0:
-				return "Need %s" % _get_craftable_name(station_id)
-			if not _can_afford_inventory(state["inventory"], _get_recipe_craft_cost(action_id)):
-				return "Need %s" % _format_cost(_get_recipe_craft_cost(action_id))
-			if int(state["stored_fuel_units"].get(station_id, 0)) < _get_recipe_fuel_cost_units(action_id):
-				return "Need fuel"
-			return ""
-		"refuel_station":
-			var station_id := _get_action_station_id(action)
-			var fuel_item_id := _get_action_fuel_item_id(action)
-			if int(state["crafted_items"].get(station_id, 0)) <= 0:
-				return "Need %s" % _get_craftable_name(station_id)
-			if _get_item_fuel_units(fuel_item_id) <= 0:
-				return "Invalid fuel"
-			if int(state["inventory"].get(fuel_item_id, 0)) <= 0:
-				return "Need %s" % _get_resource_name(fuel_item_id)
-			if int(state["stored_fuel_units"].get(station_id, 0)) >= _get_station_fuel_capacity(station_id):
-				return "Fuel full"
-			if int(state["stored_fuel_units"].get(station_id, 0)) + _get_item_fuel_units(fuel_item_id) > _get_station_fuel_capacity(station_id):
-				return "No fuel space"
-			return ""
-		_:
-			return "Unknown action"
+	return GameRules.get_action_block_reason_in_state(action, state, _build_rules_context())
 
 
 func _apply_action_start_to_state(state: Dictionary, action: Dictionary) -> void:
-	var action_type := _get_action_type(action)
-	var action_id := _get_action_id(action)
-	match action_type:
-		"gather":
-			var required_tool_id := _get_required_tool_id(action_id)
-			if required_tool_id != "":
-				state["tools"][required_tool_id]["durability"] = maxi(
-					0,
-					int(state["tools"][required_tool_id]["durability"]) - _get_tool_durability_cost(action_id)
-				)
-		"craft_tool":
-			var craft_cost := _get_tool_craft_cost(action_id)
-			for resource_id in craft_cost.keys():
-				state["inventory"][resource_id] -= int(craft_cost[resource_id])
-		"craft_item":
-			var item_craft_cost := _get_craftable_craft_cost(action_id)
-			for resource_id in item_craft_cost.keys():
-				state["inventory"][resource_id] -= int(item_craft_cost[resource_id])
-		"upgrade_craftable":
-			var upgrade_cost := _get_craftable_upgrade_cost(action_id, int(state["craftable_upgrade_levels"][action_id]))
-			for resource_id in upgrade_cost.keys():
-				state["inventory"][resource_id] -= int(upgrade_cost[resource_id])
-		"process_recipe":
-			var recipe_cost := _get_recipe_craft_cost(action_id)
-			for resource_id in recipe_cost.keys():
-				state["inventory"][resource_id] -= int(recipe_cost[resource_id])
-			state["stored_fuel_units"][ _get_recipe_station_id(action_id) ] = maxi(
-				0,
-				int(state["stored_fuel_units"].get(_get_recipe_station_id(action_id), 0)) - _get_recipe_fuel_cost_units(action_id)
-			)
-		"refuel_station":
-			var station_id := _get_action_station_id(action)
-			var fuel_item_id := _get_action_fuel_item_id(action)
-			state["inventory"][fuel_item_id] -= 1
-			state["stored_fuel_units"][station_id] = int(state["stored_fuel_units"].get(station_id, 0)) + _get_item_fuel_units(fuel_item_id)
+	GameRules.apply_action_start_to_state(state, action, _build_rules_context())
 
 
 func _apply_action_completion_to_state(state: Dictionary, action: Dictionary) -> void:
-	var action_type := _get_action_type(action)
-	var action_id := _get_action_id(action)
-	match action_type:
-		"gather":
-			var output_item_id := _get_gather_output_item_id(action_id)
-			if int(state["inventory"].get(output_item_id, 0)) < _get_capacity(action_id):
-				state["inventory"][output_item_id] += 1
-				var gather_skill_id := _get_resource_skill_id(action_id)
-				var gather_skill_state: Dictionary = state["skills"][gather_skill_id]
-				var gather_result := _simulate_exp_gain(
-					int(gather_skill_state["level"]),
-					int(gather_skill_state["exp"]),
-					int(gather_skill_state["exp_to_next"]),
-					_get_resource_xp(action_id)
-				)
-				state["skills"][gather_skill_id] = gather_result
-		"craft_tool":
-			var crafting_skill_state: Dictionary = state["skills"]["crafting"]
-			state["tools"][action_id]["durability"] = _get_tool_max_durability(action_id)
-			var craft_result := _simulate_exp_gain(
-				int(crafting_skill_state["level"]),
-				int(crafting_skill_state["exp"]),
-				int(crafting_skill_state["exp_to_next"]),
-				_get_tool_craft_xp(action_id)
-			)
-			state["skills"]["crafting"] = craft_result
-		"craft_item":
-			var item_crafting_skill_state: Dictionary = state["skills"]["crafting"]
-			state["crafted_items"][action_id] += 1
-			var item_craft_result := _simulate_exp_gain(
-				int(item_crafting_skill_state["level"]),
-				int(item_crafting_skill_state["exp"]),
-				int(item_crafting_skill_state["exp_to_next"]),
-				_get_craftable_craft_xp(action_id)
-			)
-			state["skills"]["crafting"] = item_craft_result
-		"upgrade_craftable":
-			var upgrade_skill_state: Dictionary = state["skills"]["crafting"]
-			state["craftable_upgrade_levels"][action_id] += 1
-			var upgrade_result := _simulate_exp_gain(
-				int(upgrade_skill_state["level"]),
-				int(upgrade_skill_state["exp"]),
-				int(upgrade_skill_state["exp_to_next"]),
-				_get_craftable_craft_xp(action_id)
-			)
-			state["skills"]["crafting"] = upgrade_result
-		"process_recipe":
-			var recipe_skill_id := _get_recipe_skill_id(action_id)
-			var recipe_skill_state: Dictionary = state["skills"][recipe_skill_id]
-			var recipe_outputs := _get_recipe_outputs(action_id)
-			for output_id in recipe_outputs.keys():
-				state["inventory"][output_id] += int(recipe_outputs[output_id])
-			var recipe_result := _simulate_exp_gain(
-				int(recipe_skill_state["level"]),
-				int(recipe_skill_state["exp"]),
-				int(recipe_skill_state["exp_to_next"]),
-				_get_recipe_craft_xp(action_id)
-			)
-			state["skills"][recipe_skill_id] = recipe_result
+	GameRules.apply_action_completion_to_state(state, action, _build_rules_context())
 
 
 func _get_action_queue_label(action: Dictionary) -> String:
@@ -2615,11 +2389,7 @@ func _can_afford(cost: Dictionary) -> bool:
 
 
 func _can_afford_inventory(stock: Dictionary, cost: Dictionary) -> bool:
-	for resource_id in cost.keys():
-		if int(stock.get(resource_id, 0)) < int(cost[resource_id]):
-			return false
-
-	return true
+	return GameRules.can_afford_inventory(stock, cost)
 
 
 func _spend_resources(cost: Dictionary) -> void:
